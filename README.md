@@ -1,166 +1,187 @@
 # MathType Office Toolkit
 
-[简体中文](README-zhCN.md) | [繁體中文](README-zhTW.md)
+简体中文 | [English](README-en.md) | [繁體中文](README-zhTW.md)
 
-An MCP server and a cross-agent skill that let AI agents (Claude Code, Claude Desktop, Codex, ChatGPT) create **real, editable MathType 7 equations** in Microsoft Word and PowerPoint — with MathType-native equation numbers `(1)`, dynamic cross-references, and structural validation.
+一套 **MCP 服务器 + AI Agent 技能（skill）**，让 Claude Code、Claude Desktop、Codex、ChatGPT 等 AI Agent 在 Word 和 PowerPoint 里生成**真正可编辑的 MathType 7 公式**，并支持 MathType 原生公式编号 `(1)`、自动更新的交叉引用和结构化校验。
 
-Version **1.0.0**. Forked from [felimet/mathtype-for-word](https://github.com/felimet/mathtype-for-word) (MIT) and extended; see [What this fork adds](#what-this-fork-adds).
+**默认公式格式为《岩土工程学报》（CJGE）MathType 规范**：五号 10.5 磅、变量 Times New Roman 斜体、小写希腊字母 Symbol 斜体、矢量矩阵黑斜体、编号右对齐、正文引用写作“式（n）”。
+
+版本 **1.1.0**。基于 [felimet/mathtype-for-word](https://github.com/felimet/mathtype-for-word)（MIT）fork 并扩展，改进内容见[本 fork 的改进](#本-fork-的改进)。
 
 ---
 
-## Contents
+## 目录
 
-- [When to use it](#when-to-use-it)
-- [Requirements](#requirements)
-- [Core capabilities](#core-capabilities)
-- [MCP tools and skill](#mcp-tools-and-skill)
-- [Output format](#output-format)
-- [Silent AI-agent operation](#silent-ai-agent-operation)
-- [Installation](#installation)
-- [Verify the installation](#verify-the-installation)
-- [Troubleshooting highlights](#troubleshooting-highlights)
-- [What this fork adds](#what-this-fork-adds)
-- [Repository layout](#repository-layout)
-- [Credits and license](#credits-and-license)
+- [适用场景](#适用场景)
+- [环境要求](#环境要求)
+- [核心能力](#核心能力)
+- [默认公式格式（CJGE）](#默认公式格式cjge)
+- [MCP 工具与 Skill](#mcp-工具与-skill)
+- [清单（manifest）写法](#清单manifest写法)
+- [静默运行](#静默运行)
+- [安装](#安装)
+- [验证安装](#验证安装)
+- [常见问题](#常见问题)
+- [本 fork 的改进](#本-fork-的改进)
+- [仓库结构](#仓库结构)
+- [致谢与许可](#致谢与许可)
 
-## When to use it
+## 适用场景
 
-Use this toolkit when an AI agent has to put **mathematics into Office files that people will keep editing in MathType**:
+当你需要让 AI 把**数学公式写进 Word / PowerPoint，而且之后还要在 MathType 里继续修改**时使用：
 
-- Writing or revising theses, journal papers, reports and course designs in Word that contain formulas.
-- Converting TeX (from notes, LaTeX drafts or an LLM) into genuine MathType objects instead of Word OMath, images or Unicode text.
-- Adding numbered display equations `(1), (2), …` and in-text references such as "Eq. (2)" that renumber automatically when equations are added, moved or deleted.
-- Putting consistent, editable equations on PowerPoint slides for talks and defences.
-- Checking that a document's equations, numbers and references are structurally correct (no `Error! Reference source not found.`, no leftover placeholders, no OMath mixed in).
+- 撰写或修改含公式的学位论文、期刊论文（尤其是投《岩土工程学报》等中文期刊）、报告、课程设计。
+- 把 TeX（笔记、LaTeX 草稿或大模型输出）转成真正的 MathType 公式，而不是 Word 自带公式（OMath）、图片或纯文本。
+- 给行间公式加 `(1)、(2)…` 编号，并在正文里插入“式（2）”这样的引用；增删、移动公式后编号和引用自动更新。
+- 把已有文档里所有 MathType 公式**一次性统一成期刊要求的字号和字体样式**。
+- 在答辩、组会 PPT 里放和论文同一样式、字号统一的可编辑公式。
+- 检查文档里的公式、编号、引用和公式格式是否合规。
 
-It is **not** for Word's built-in equation editor (OMath), LaTeX/PDF output, macOS, or Office on the web.
+**不适用于**：Word 自带公式编辑器（OMath）、LaTeX/PDF 输出、macOS 或网页版 Office。
 
-## Requirements
+## 环境要求
 
-| Item | Requirement |
+| 项目 | 要求 |
 |---|---|
-| OS | Windows 10 or 11, interactive desktop session (Office COM automation) |
-| Office | Microsoft **Word** and **PowerPoint** desktop (Microsoft 365 / Office 2016 or later; tested with 16.0) |
-| MathType | Desktop **MathType for Windows** 7 from the [MathType download page](https://mathtype.tw/download/). Developed and tested with **MathType-win-zh-7.11.1.462** (`ProductVersion 7.11.1.462`). The **MathType Add-In for Microsoft 365** (task-pane add-in) is *not* enough: it lacks the desktop OLE server, Word template and PowerPoint add-in used here. |
-| PowerShell | **PowerShell 7+** as `pwsh.exe`; the Office bridge never runs in Windows PowerShell 5.1 |
-| Python | Python 3 on `PATH`. The MCP server uses only the standard library; the optional table layout also needs `pywin32` (`pip install -r requirements.txt`) |
-| AI host | Any MCP-capable agent: Claude Code, Claude Desktop, Codex; ChatGPT through a remote endpoint or Secure MCP Tunnel |
+| 操作系统 | Windows 10 或 11，需在有桌面的登录会话中运行（Office COM 自动化） |
+| Office | 桌面版 Microsoft **Word** 和 **PowerPoint**（Microsoft 365 / Office 2016 及以上，已在 16.0 64 位测试） |
+| MathType | 桌面版 **MathType for Windows** 7，可从 [MathType 下载页](https://mathtype.tw/download/) 获取。开发与测试版本为 **MathType-win-zh-7.11.1.462**（`ProductVersion 7.11.1.462`）。只装 **MathType Add-In for Microsoft 365**（任务窗格插件）**不够**，它没有本工具依赖的桌面 OLE 组件、MathType API（`MathPage.wll`）、Word 模板和 PowerPoint 插件 |
+| PowerShell | **PowerShell 7 及以上**（`pwsh.exe`）；Office 桥接脚本不能在 Windows PowerShell 5.1 中运行 |
+| Python | `PATH` 中有 Python 3（与 Office 位数一致，64 位 Office 用 64 位 Python），并安装 `pip install -r requirements.txt`（`pywin32`、`lxml`） |
+| AI 客户端 | 支持 MCP 的 Agent：Claude Code、Claude Desktop、Codex；ChatGPT 需通过远程端点或 Secure MCP Tunnel |
 
-### Terminal compatibility
+### 终端兼容性
 
-The bridge is a PowerShell 7 script. The calling terminal may be PowerShell 7, Bash on Windows including Git Bash, or CMD, but the bridge itself always runs through `pwsh.exe`.
+桥接脚本是 PowerShell 7 脚本，可在 PowerShell 7、Windows 上的 Bash（含 Git Bash）或 CMD 中调用，但脚本本身必须由 `pwsh.exe` 执行。
 
-| Active terminal | Required action |
+| 当前终端 | 做法 |
 |---|---|
-| PowerShell 7+ | Run the commands directly with `pwsh.exe`. |
-| Bash on Windows, including Git Bash | Invoke Windows `pwsh.exe`. |
-| WSL Bash | Invoke Windows `pwsh.exe`; Linux `pwsh` cannot automate Windows Office COM. |
-| CMD | Invoke `pwsh.exe` with the same arguments. |
-| Windows PowerShell 5.1 | Do not run the bridge in PowerShell 5.1. Switch to Git Bash or CMD and invoke `pwsh.exe`. |
-| No supported terminal or no `pwsh.exe` | Install PowerShell 7; see the [Microsoft PowerShell update FAQ](https://learn.microsoft.com/zh-tw/powershell/scripting/install/microsoft-update-faq?view=powershell-7.6). |
+| PowerShell 7+ | 直接用 `pwsh.exe` 运行 |
+| Windows 上的 Bash（含 Git Bash） | 调用 Windows 的 `pwsh.exe` |
+| WSL Bash | 调用 Windows 的 `pwsh.exe`；Linux 版 `pwsh` 无法控制 Windows Office |
+| CMD | 用相同参数调用 `pwsh.exe` |
+| Windows PowerShell 5.1 | 不要在 PowerShell 5.1 中运行，改用 Git Bash 或 CMD 调用 `pwsh.exe` |
+| 没有可用终端或没有 `pwsh.exe` | 安装 PowerShell 7，参见[微软 PowerShell 更新说明](https://learn.microsoft.com/zh-tw/powershell/scripting/install/microsoft-update-faq?view=powershell-7.6) |
 
-## Core capabilities
+## 核心能力
 
-**Word (`.docx`)**
+**Word（`.docx`）**
 
-1. **Genuine MathType objects** — every equation is an editable `Equation.DSMT4` OLE object created through MathType's own TeX conversion (`MTCommand_TeXToggle`); double-clicking opens it in MathType.
-2. **Inline and display equations** — inline math stays in the sentence; display equations get their own paragraph.
-3. **MathType-native numbering** — numbered displays use MathType's `MACROBUTTON MTPlaceRef` + `SEQ MTEqn` fields, formatted as simple `(1), (2), (3)` with no chapter or section part.
-4. **Dynamic cross-references** — "Eq. (2)" is a MathType reference (`GOTOBUTTON` + nested `REF` to a `ZEqnNum…` bookmark), so it follows renumbering.
-5. **Field update** after equations are added, moved or deleted.
-6. **Optional table layout** — display equations become a 1×3 borderless table (equation centred, number right-aligned) while numbers and references stay MathType-native.
-7. **Structural validation** — counts MathType objects, number and reference fields, bookmarks and sequential values; rejects OMath, leftover markers and broken references.
-8. **Whole-document classification** — the skill scans the manuscript and decides which expressions are inline, unnumbered display, numbered display, or references.
+1. **真正的 MathType 公式**：每个公式都是可编辑的 `Equation.DSMT4` 对象，由 MathType 自身的 TeX 转换生成，双击即可在 MathType 中编辑。
+2. **行内公式与行间公式**：行内公式留在句子里，行间公式单独成段。
+3. **MathType 原生编号**：带编号的行间公式使用 MathType 的 `MACROBUTTON MTPlaceRef` + `SEQ MTEqn` 域，格式为 `(1)、(2)、(3)`，不含章节号，全文连续。
+4. **自动更新的交叉引用**：正文“式（2）”是 MathType 引用（`GOTOBUTTON` + `REF` 书签），公式重新编号后自动跟着变。
+5. **一键统一公式格式**：按 MathType 偏好文件（默认 CJGE）把全文每个公式重新排版，效果等同 MathType 的“设置公式格式”，并把偏好写进文档，之后手动插入的公式也沿用同一格式。
+6. **表格式行间公式版式**：公式居中、编号靠右，编号和引用仍是 MathType 原生的。
+7. **公式后标点**：公式与编号之间自动加“，”或“。”。
+8. **结构化 + 格式校验**：检查公式对象、编号、引用、书签、占位符，以及每个公式是否符合 CJGE 字号和样式。
+9. **全文自动分类**：Skill 通读全文，判断每个表达式是行内公式、无编号行间公式、带编号行间公式还是引用。
 
-**PowerPoint (`.pptx`)**
+**PowerPoint（`.pptx`）**
 
-9. **Editable floating MathType equations**, horizontally centred, named `MathType_<id>`, with their embedded MathML checked against the request.
-10. **Uniform equation size** — all equations use one math font size, as in Word, so a simple `σ = Eε` and a fraction look consistent.
+10. **可编辑的浮动 MathType 公式**，水平居中，内容逐一核对。
+11. **与 Word 同一样式**：同样按 CJGE 偏好排版，整份演示文稿公式字号统一（默认跟随占位文字字号）。
 
-**Safety**
+**安全性**
 
-11. The source file is never modified; output goes to a new path and is published atomically.
-12. Word, PowerPoint and MathType run hidden and silently, and Word or PowerPoint windows the user already has open are never closed.
+12. 从不修改源文件，结果写入新路径并原子替换。
+13. Word、PowerPoint、MathType 全程隐藏静默运行，不弹窗、不占用剪贴板改格式，**不会关闭你已经打开的 Word / PowerPoint**。
 
-## MCP tools and skill
+## 默认公式格式（CJGE）
 
-**Skill name:** `mathtype-for-word` (folder `skills/mathtype-for-word/`, packaged as `dist/mathtype-for-word.skill`). It tells the agent how to work: scan the document, classify equations, write the manifest, apply academic typography, call the tools, and validate.
+依据《岩土工程学报》刊出论文实测和官网《征稿简则》整理，完整规范见 [cjge-format.md](skills/mathtype-for-word/references/cjge-format.md)。
 
-**MCP server name:** `mathtype-for-word` (entry point `scripts/run-mcp.ps1` → `scripts/mcp_server.py`, stdio). Tools:
+**尺寸与样式**（`config/cjge_equation_preferences.eqp`，自动套用）
 
-| Tool | Office | Read-only | Purpose |
+| MathType 项 | 设定 |
+|---|---|
+| Full（常规） | **10.5 磅（五号）** |
+| 上下标 / 次级上下标 | 58% / 42% |
+| 大运算符 / 次级大运算符 | 150% / 100% |
+| 文本、函数名（sin、tan、max…）、数字 | Times New Roman **正体** |
+| 变量 | Times New Roman **斜体** |
+| 小写希腊字母 | Symbol **斜体** |
+| 大写希腊字母、运算符和括号 | Symbol 正体 |
+| 矢量、矩阵 | Times New Roman **黑斜体** |
+
+**版式**（`config/cjge_layout_profile.json`）
+
+| 元素 | 格式 |
+|---|---|
+| 行间公式 | 单独成行、居中；1×3 无边框表格（两侧 72 磅），段前段后 0，行距“最小值 15.6 磅”（公式不会被裁切） |
+| 编号 | 半角 `(1)、(2)…`，Times New Roman 五号正体，右对齐，全文连续 |
+| 公式后标点 | 后接“式中：”用“，”，句末用“。”，宋体，位于公式与编号之间 |
+| 正文引用 | “式（5）”“见式（16）”，全角括号，编号自动更新 |
+| 联立方程组 | 右侧一个大括号 `}`，整组只编一个号 |
+
+**写作规则**（由 Skill 在写稿和清单时执行）：描述性下标正体（*W*<sub>t</sub>、*β*<sub>d</sub>，TeX 写 `W_{\mathrm{t}}`）；序号下标 i、j 斜体；数字下标、单位正体；减号为“−”；公式下方另起一行顶格写“式中：”，各项用“；”分隔、以“。”结束；正文中的简单符号直接用 TNR 斜体输入，与公式中写法一致。
+
+> 只想要 MathType 原来的样式？在清单里写 `"equation_preferences": "none"`、`"display_layout": "tab"`、`"reference_brackets": "halfwidth"` 即可。
+
+## MCP 工具与 Skill
+
+**Skill 名称：`mathtype-for-word`**（目录 `skills/mathtype-for-word/`，打包文件 `dist/mathtype-for-word.skill`）：告诉 Agent 怎么通读文档、分类公式、写清单、按 CJGE 规范写 TeX 和“式中”、调用工具并校验。
+
+**MCP 服务器名称：`mathtype-for-word`**（入口 `scripts/run-mcp.ps1` → `scripts/mcp_server.py`，stdio 协议）：
+
+| 工具 | 适用 | 只读 | 作用 |
 |---|---|:---:|---|
-| `probe_mathtype_word` | Word | ✓ | Check Windows, PowerShell, Word COM, MathType 7, its Word template and `Equation.DSMT4` registration. |
-| `probe_mathtype_powerpoint` | PowerPoint | ✓ | Same checks plus PowerPoint COM and the MathType PowerPoint add-in. |
-| `configure_mathtype_word_defaults` | Word | | Save the default number format `(1)` and MathType warning preferences. Run once after installing or reinstalling Office. |
-| `render_mathtype_word_document` | Word | | Replace `{{MATH:id}}` / `{{EQREF:id}}` markers with MathType equations, native numbers and references (manifest-driven). |
-| `apply_mathtype_repo_layout` | Word | | Optional: convert display equations to the 1×3 borderless table layout, in place. |
-| `validate_mathtype_word_document` | Word | ✓ | Structural validation of objects, numbers, references, bookmarks and markers. |
-| `update_mathtype_word_fields` | Word | | Refresh all number and reference fields after edits. |
-| `render_mathtype_powerpoint_presentation` | PowerPoint | | Replace marker text boxes with centred, uniformly sized MathType equations. |
-| `validate_mathtype_powerpoint_presentation` | PowerPoint | ✓ | Verify named objects, centring, embedded MathML, math size and leftover markers. |
+| `probe_mathtype_word` | Word | ✓ | 检查 Windows、PowerShell、Word COM、MathType 7、Word 模板和 `Equation.DSMT4` 注册 |
+| `probe_mathtype_powerpoint` | PowerPoint | ✓ | 同上，另检查 PowerPoint COM 和 MathType 的 PowerPoint 插件 |
+| `configure_mathtype_word_defaults` | Word | | 保存默认编号格式 `(1)` 和 MathType 警告偏好；安装后、重装 Office 后各运行一次 |
+| `render_mathtype_word_document` | Word | | 按清单生成 MathType 公式、原生编号和引用，并默认完成 CJGE 排版、表格版式、全角引用和校验 |
+| `apply_mathtype_equation_preferences` | Word | | 用 MathType 偏好文件（默认 CJGE）统一全文公式的字号和样式 |
+| `apply_mathtype_repo_layout` | Word | | 把行间公式改成 1×3 无边框表格版式（默认 CJGE 参数） |
+| `validate_mathtype_word_document` | Word | ✓ | 校验公式对象、编号、引用、书签、占位符，并检查公式是否符合 CJGE 格式 |
+| `update_mathtype_word_fields` | Word | | 编辑后刷新全部编号域和引用域 |
+| `render_mathtype_powerpoint_presentation` | PowerPoint | | 把占位文本框替换成居中、CJGE 样式、字号统一的 MathType 公式 |
+| `validate_mathtype_powerpoint_presentation` | PowerPoint | ✓ | 校验对象命名、居中、内嵌 MathML、公式字号和残留占位符 |
 
-A minimal Word manifest (see `examples/example-manifest.json`):
+## 清单（manifest）写法
 
 ```json
 {
   "schema_version": 1,
   "equations": [
-    { "id": "stress", "marker": "{{MATH:stress}}", "tex": "\\sigma = \\frac{My}{I}", "layout": "display", "numbered": true }
+    { "id": "stress", "marker": "{{MATH:stress}}", "tex": "\\sigma =\\frac{M y}{I}",
+      "layout": "display", "numbered": true, "punctuation": "，" },
+    { "id": "group", "marker": "{{MATH:group}}",
+      "tex": "\\left.\\begin{array}{l}W_{\\mathrm{t}}=L\\tan \\beta _{\\mathrm{d}}\\\\ V_{\\mathrm{L}}=W_{\\mathrm{b}}H\\end{array}\\right\\}",
+      "layout": "display", "numbered": true, "punctuation": "。" }
   ],
   "references": [ { "marker": "{{EQREF:r1}}", "target": "stress" } ]
 }
 ```
 
-## Output format
+- 正文里写 `由式{{EQREF:r1}}可得`，生成后为“由式（1）可得”。
+- 可选顶层字段：`reference_brackets`（`fullwidth` 默认 / `halfwidth`）、`equation_preferences`（`.eqp` 路径，默认 CJGE，或 `none`）、`display_layout`（`table` 默认 / `tab`）。
+- 联立方程组的 `\\` 后要留一个空格；MathType 的 TeX 导入不支持 `aligned` 和 `\cr`。
 
-### Word
+## 静默运行
 
-| Element | Format |
-|---|---|
-| Equation object | `Equation.DSMT4` OLE, editable in MathType; never OMath, an image or text |
-| Inline equation | Inline OLE object inside the sentence |
-| Display equation (default) | MathType layout `<tab> equation <tab> (n)` with centre and right tab stops (`MTDisplayEquation` style) |
-| Display equation (optional table layout) | 1×3 borderless table: side cells 72 pt (at most text width / 4), zero cell padding, row and lines "at least" 20 pt, vertically centred, no indents, 0 pt before and after; equation centred in the middle cell, number right-aligned in the right cell |
-| Equation number | `(1), (2), (3)…` Arabic numerals in parentheses, no chapter or section, one sequence for the whole document, updated automatically. In the table layout the number uses Times New Roman / SimSun 12 pt |
-| Reference | Shows `(n)` in the text; MathType `GOTOBUTTON`/`REF` field that follows renumbering |
-| Typography | Scalars and variable Greek letters italic; vectors bold lowercase; matrices and tensors bold uppercase; functions, operators, constants, differentials and SI units upright; numeric sub- and superscripts upright (IEEE style, see [academic-equation-style.md](skills/mathtype-for-word/references/academic-equation-style.md)) |
-| Prose | A display equation is introduced by the preceding sentence and followed by "where …" / "其中，…" defining every new symbol and unit |
+AI Agent 操作 Word、PowerPoint 或 MathType 时必须在后台静默进行：不显示或激活程序窗口、不抢键盘焦点、不弹对话框、不模拟鼠标键盘操作界面。某一步无法静默完成时，应停止并说明原因，而不是接管用户桌面。统一公式格式时直接调用 MathType API 改写文件，不经过剪贴板；只有向 PowerPoint 放入公式时会短暂使用剪贴板。
 
-### PowerPoint
+## 安装
 
-| Element | Format |
-|---|---|
-| Equation object | Floating `Equation.DSMT4` OLE, horizontally centred, placed where the marker text box was |
-| Size | One math font size for the deck, taken from `font_pt`, `equation_font_pt`, or the marker text's font size (default 24 pt); the natural 12 pt MathType object is scaled by `font_pt / 12` |
-| Numbering and references | Not available: PowerPoint has no MathType field mechanism, and it is not imitated with typed numbers |
+### 让 AI Agent 帮你安装
 
-## Silent AI-agent operation
-
-When an AI agent edits Word, PowerPoint, or MathType content, it must operate silently in the background: do not show or activate application windows, steal keyboard focus, display modal dialogs, or automate visible UI with mouse or keyboard input. If a requested step cannot be completed silently, stop and report the limitation instead of taking over the user's desktop. The bridge briefly uses the Windows clipboard to move a converted object into PowerPoint.
-
-## Installation
-
-### Install with an AI agent
-
-Paste this prompt into Claude Code, Claude Desktop, Codex, or ChatGPT Desktop:
+把下面这段话粘贴给 Claude Code、Claude Desktop、Codex 或 ChatGPT Desktop：
 
 ```text
-Install or upgrade the MathType Office Toolkit from https://github.com/xyj0727/mathtype-office-toolkit. Detect my available terminal and use PowerShell 7, Bash on Windows including Git Bash, or CMD. Do not run the Office bridge under Windows PowerShell 5.1; if 5.1 is active, switch to Git Bash or CMD and invoke Windows pwsh.exe. From WSL Bash, invoke Windows pwsh.exe rather than Linux pwsh. If no supported terminal or pwsh.exe is available, stop and tell me to install PowerShell 7 using https://learn.microsoft.com/zh-tw/powershell/scripting/install/microsoft-update-faq?view=powershell-7.6. Verify desktop MathType for Windows ProductVersion 7.11.1.462 plus Microsoft Word and PowerPoint desktop, install the mathtype-for-word skill, register the local stdio MCP server named mathtype-for-word, run configure_mathtype_word_defaults, both MathType probes and the repository tests, preserve existing agent configuration, and report every changed file. Do not claim success unless the outputs contain editable Equation.DSMT4 objects and validation returns ok: true.
+从 https://github.com/xyj0727/mathtype-office-toolkit 安装或升级 MathType Office Toolkit。检测我可用的终端，使用 PowerShell 7、Windows 上的 Bash（含 Git Bash）或 CMD；不要在 Windows PowerShell 5.1 中运行 Office 桥接脚本，如果当前是 5.1，改用 Git Bash 或 CMD 调用 Windows 的 pwsh.exe；在 WSL Bash 中调用 Windows 的 pwsh.exe 而不是 Linux 的 pwsh。如果没有可用终端或没有 pwsh.exe，停下来并提示我按 https://learn.microsoft.com/zh-tw/powershell/scripting/install/microsoft-update-faq?view=powershell-7.6 安装 PowerShell 7。确认已安装桌面版 MathType for Windows（ProductVersion 7.11.1.462）以及桌面版 Word 和 PowerPoint，运行 pip install -r requirements.txt，安装 mathtype-for-word skill，注册名为 mathtype-for-word 的本地 stdio MCP 服务器，运行 configure_mathtype_word_defaults、两个 MathType 检测和仓库自带测试，保留我现有的 Agent 配置，并列出所有改动过的文件。只有当输出包含可编辑的 Equation.DSMT4 对象且校验返回 ok: true 时才算成功。
 ```
 
-Platform-specific paths are in the [installation matrix](skills/mathtype-for-word/references/installation-matrix.md).
+各平台的具体路径见[安装对照表](skills/mathtype-for-word/references/installation-matrix.md)。
 
-### Manual installation
+### 手动安装
 
-1. Clone the repository and note its absolute path as `<REPO_ROOT>`:
+```console
+git clone https://github.com/xyj0727/mathtype-office-toolkit.git
+cd mathtype-office-toolkit
+pip install -r requirements.txt
+```
 
-   ```console
-   git clone https://github.com/xyj0727/mathtype-office-toolkit.git
-   ```
-
-2. Optional, for the table layout: `pip install -r requirements.txt`.
-3. Add the skill and register the MCP server for your agent, keeping existing MCP entries.
+记下仓库的绝对路径 `<REPO_ROOT>`，然后按你使用的 Agent 安装 skill 并注册 MCP 服务器（保留已有配置）。
 
 ### Claude Code
 
@@ -169,11 +190,11 @@ xcopy /E /I "<REPO_ROOT>\skills\mathtype-for-word" "%USERPROFILE%\.claude\skills
 claude mcp add --scope user mathtype-for-word -- pwsh.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "<REPO_ROOT>\scripts\run-mcp.ps1"
 ```
 
-The repository also ships `.claude-plugin/plugin.json`, `.mcp.json` and `dist/mathtype-for-word-plugin.zip` for plugin installation.
+仓库也提供 `.claude-plugin/plugin.json`、`.mcp.json` 和 `dist/mathtype-for-word-plugin.zip`，可按插件方式安装。
 
 ### Claude Desktop
 
-Upload `dist/mathtype-for-word.skill` under **Customize > Skills**, then merge this into `%APPDATA%\Claude\claude_desktop_config.json` and restart:
+在 **Customize > Skills** 上传 `dist/mathtype-for-word.skill`，再把下面内容合并进 `%APPDATA%\Claude\claude_desktop_config.json` 并重启：
 
 ```json
 {
@@ -188,7 +209,7 @@ Upload `dist/mathtype-for-word.skill` under **Customize > Skills**, then merge t
 
 ### Codex
 
-Copy `skills/mathtype-for-word` to `%USERPROFILE%\.codex\skills\mathtype-for-word`, then:
+把 `skills/mathtype-for-word` 复制到 `%USERPROFILE%\.codex\skills\mathtype-for-word`，然后：
 
 ```console
 codex mcp add mathtype-for-word -- pwsh.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "<REPO_ROOT>\scripts\run-mcp.ps1"
@@ -196,13 +217,13 @@ codex mcp add mathtype-for-word -- pwsh.exe -NoLogo -NoProfile -NonInteractive -
 
 ### ChatGPT Desktop
 
-ChatGPT cannot start a local stdio server; it needs a remote MCP endpoint or a [Secure MCP Tunnel](https://help.openai.com/en/articles/12584461-developer-mode-and-full-mcp-connectors-in-chatgpt-beta) routed to the Windows machine that runs Office.
+ChatGPT 无法直接启动本地 stdio 服务器，需要远程 MCP 端点或 [Secure MCP Tunnel](https://help.openai.com/en/articles/12584461-developer-mode-and-full-mcp-connectors-in-chatgpt-beta)，并连到运行 Office 的那台 Windows 电脑。
 
-### After installing
+### 安装之后
 
-Run `configure_mathtype_word_defaults` once, and again after reinstalling Office.
+运行一次 `configure_mathtype_word_defaults`；以后重装 Office 后也要再运行一次。
 
-## Verify the installation
+## 验证安装
 
 ```console
 pwsh.exe -NoProfile -ExecutionPolicy Bypass -File scripts/mathtype-word.ps1 -Action probe
@@ -210,56 +231,65 @@ pwsh.exe -NoProfile -ExecutionPolicy Bypass -File scripts/mathtype-word.ps1 -Act
 pwsh.exe -NoProfile -ExecutionPolicy Bypass -File tests/run-tests.ps1 -IncludeLiveOffice
 ```
 
-### Quick AI-agent test prompt
+### AI Agent 快速测试
 
 ```text
-Use the installed MathType Office Toolkit for a smoke test. Run both prerequisite probes, then use evals/fixtures/en-paper-draft.docx with en-word-manifest.json and evals/fixtures/en-presentation-draft.pptx with en-powerpoint-manifest.json to create new DOCX and PPTX outputs in a normal folder (not %TEMP%). Keep Word, PowerPoint, and MathType silent and hidden; do not overwrite the source fixtures. Validate both outputs and report their paths, MathType object counts, Word native number/reference counts, and the PowerPoint mathml_verified count. Do not claim success unless both validations return ok: true.
+用已安装的 MathType Office Toolkit 做一次冒烟测试：先运行两个环境检测，再用 evals/fixtures/en-paper-draft.docx 配合 en-word-manifest.json、evals/fixtures/en-presentation-draft.pptx 配合 en-powerpoint-manifest.json，在普通文件夹（不要用 %TEMP%）里生成新的 DOCX 和 PPTX。全程保持 Word、PowerPoint、MathType 隐藏静默，不要覆盖源文件。校验两个输出（Word 校验包含 CJGE 格式检查），报告路径、MathType 对象数、Word 原生编号/引用数和 PowerPoint 的 mathml_verified 数。只有两次校验都返回 ok: true 才算成功。
 ```
 
-## Troubleshooting highlights
+## 常见问题
 
-| Symptom | Fix |
+| 现象 | 解决办法 |
 |---|---|
-| Render hangs at "Insert Equation Number" (often after reinstalling Office) | Run `configure_mathtype_word_defaults`. The MathType Word add-in reads the `HKCU\Software\Design Science\DSMT7\WordCommands` values as REG_SZ strings. |
-| "property `Content` not found" right after opening the DOCX | The file is under `%TEMP%` and opens in Protected View; use a normal folder. |
-| `Error! Reference source not found.` | A `ZEqnNum…` bookmark was deleted; recreate the reference through MathType. |
+| 渲染卡在“Insert Equation Number”（多见于重装 Office 之后） | 运行 `configure_mathtype_word_defaults`。MathType 的 Word 插件按字符串（REG_SZ）读取 `HKCU\Software\Design Science\DSMT7\WordCommands` 下的值 |
+| 重装 Office 后在 Word 里用 MathType“设置公式格式”报错 53 `MathPage.WLL` | 把 `<MathType>\MathPage\64\MathPage.wll`（64 位 Office）复制到 `%APPDATA%\Microsoft\Word\STARTUP` 后重启 Word。本工具直接调用 MathType API，不受影响 |
+| 校验报 `equation_format` 错误 | 公式是后来手动添加或修改的，运行 `apply_mathtype_equation_preferences` 后再校验 |
+| 刚打开 DOCX 就报“找不到属性 Content” | 文件放在 `%TEMP%` 下，Word 以受保护视图打开；换到普通文件夹 |
+| 出现“错误！未找到引用源” | `ZEqnNum…` 书签被删了；通过 MathType 重新插入引用 |
 
-Full table: [troubleshooting.md](skills/mathtype-for-word/references/troubleshooting.md).
+完整列表见 [troubleshooting.md](skills/mathtype-for-word/references/troubleshooting.md)。
 
-## What this fork adds
+## 本 fork 的改进
 
-Compared with upstream [felimet/mathtype-for-word](https://github.com/felimet/mathtype-for-word) 1.3.0:
+相对上游 [felimet/mathtype-for-word](https://github.com/felimet/mathtype-for-word) 1.3.0：
 
-- **Table display layout (optional)** — new tool `apply_mathtype_repo_layout`, using the display-equation format of [word-mathtype-mcp](https://github.com/songsongshuo785-art/word-mathtype-mcp). The rendered paragraph is converted in place (`Range.ConvertToTable`, no clipboard), so numbers and references stay MathType-native. `validate_mathtype_word_document` accepts both layouts.
-- **Uniform equation size in PowerPoint** — scaled to one math font size instead of a fixed 32 pt height; the validator detects resized equations and mixed sizes.
-- **Never closes the user's PowerPoint** — PowerPoint is single-instance; rendering, validation and `probe_mathtype_powerpoint` now close only their own presentation.
-- **Reinstall and localization fixes** — MathType warning preferences are written as REG_SZ (DWORD values made renders hang after an Office reinstall); presentation manifests without `height_points` no longer fail; bridge output is UTF-8 so localized error messages no longer break the MCP JSON.
+- **1.1.0 — CJGE 公式格式**：新增 `apply_mathtype_equation_preferences`（调用 MathType API 按偏好文件重排全部公式，效果同 MathType“设置公式格式”，全程静默）；CJGE 偏好与版式配置；公式后标点；全角引用“式（n）”；校验器新增公式格式检查；PPT 公式同样按 CJGE 样式排版；联立方程组 TeX 写法；清单缺少 `references` 时不再报错。
+- **1.0.0**：
+  - 表格式行间公式版式 `apply_mathtype_repo_layout`（原地转换，编号引用保持 MathType 原生）；
+  - PPT 公式字号统一；
+  - 不再关闭用户已打开的 PowerPoint（渲染、校验和检测都一样）；
+  - MathType 警告偏好改为 REG_SZ 写入（修复重装 Office 后渲染卡死）；
+  - PPT 清单省略 `height_points` 不再报错；
+  - 桥接脚本改为 UTF-8 输出，中文报错不再破坏 MCP 的 JSON。
 
-## Repository layout
+## 仓库结构
 
-| Path | Purpose |
+| 路径 | 用途 |
 |---|---|
-| `skills/mathtype-for-word/` | Cross-agent skill (`SKILL.md`), references and launcher |
-| `scripts/mathtype-word.ps1` | Office automation bridge (Word, PowerPoint, MathType) |
-| `scripts/mcp_server.py`, `scripts/run-mcp.ps1` | Dependency-free stdio MCP server and launcher |
-| `scripts/repo_layout.py` | Table display layout (`apply_mathtype_repo_layout`) |
-| `config/defaults.json` | Default Word equation-number profile |
-| `config/repo_format_profile.json` | word-mathtype-mcp format profile used by the table layout |
-| `examples/` | Example manifest |
-| `evals/fixtures/` | Chinese and English DOCX/PPTX test inputs |
-| `tests/` | Static, MCP protocol and live Office tests |
-| `dist/` | `mathtype-for-word-plugin.zip` (plugin) and `mathtype-for-word.skill` (skill), with SHA-256 files |
+| `skills/mathtype-for-word/` | 跨 Agent 的 skill（`SKILL.md`）、参考文档（含 `references/cjge-format.md`）和启动脚本 |
+| `scripts/mathtype-word.ps1` | Office 自动化桥接脚本（Word、PowerPoint、MathType） |
+| `scripts/mcp_server.py`、`scripts/run-mcp.ps1` | stdio MCP 服务器及启动脚本 |
+| `scripts/mathtype_prefs.py` | 按偏好文件重排公式、公式格式检查（`apply_mathtype_equation_preferences`） |
+| `scripts/repo_layout.py` | 表格式公式版式（`apply_mathtype_repo_layout`） |
+| `config/cjge_equation_preferences.eqp` | CJGE MathType 偏好（尺寸与样式） |
+| `config/cjge_layout_profile.json` | CJGE 行间公式版式 |
+| `config/repo_format_profile.json` | word-mathtype-mcp 版式（可选） |
+| `config/defaults.json` | Word 默认编号设置 |
+| `examples/`、`evals/fixtures/` | 清单示例、中英文测试文件 |
+| `tests/` | 静态检查、MCP 协议测试和 Office 实机测试 |
+| `dist/` | `mathtype-for-word-plugin.zip`（插件包）、`mathtype-for-word.skill`（skill 包）及 SHA-256 |
 
-Rebuild the plugin package with `python scripts/package_plugin.py`.
+重新打包插件：`python scripts/package_plugin.py`。
 
-## Support
+## 问题反馈
 
-Please open an issue at [GitHub Issues](https://github.com/xyj0727/mathtype-office-toolkit/issues).
+请在 [GitHub Issues](https://github.com/xyj0727/mathtype-office-toolkit/issues) 提交。
 
-## Credits and license
+## 致谢与许可
 
-[MIT](LICENSE).
+[MIT](LICENSE)。
 
-- Original project: [felimet/mathtype-for-word](https://github.com/felimet/mathtype-for-word) by Jia-Ming Zhou (Felimet), MIT.
-- Table-layout format profile (`config/repo_format_profile.json`): [word-mathtype-mcp](https://github.com/songsongshuo785-art/word-mathtype-mcp) by Songchongyang, MIT; see `config/LICENSE-word-mathtype-mcp.txt`.
-- MathType is a trademark of its owner; this project is not affiliated with it.
+- 原项目：[felimet/mathtype-for-word](https://github.com/felimet/mathtype-for-word)，作者 Jia-Ming Zhou (Felimet)，MIT。
+- 表格版式最初参考 [word-mathtype-mcp](https://github.com/songsongshuo785-art/word-mathtype-mcp)（Songchongyang，MIT），其配置保留在 `config/repo_format_profile.json`，许可见 `config/LICENSE-word-mathtype-mcp.txt`。
+- CJGE 格式依据《岩土工程学报》刊出论文与官网《征稿简则》整理；`cjge_equation_preferences.eqp` 以 MathType 自带的 Times+Symbol 偏好为基础修改。
+- MathType 是其所有者的商标，本项目与其无关联。

@@ -319,11 +319,25 @@ function Read-Manifest {
     $resolved = Resolve-ExistingFile -Path $Path -Label 'ManifestPath'
     $manifest = Get-Content -Raw -LiteralPath $resolved | ConvertFrom-Json
     if ($manifest.schema_version -ne 1) { throw 'Manifest schema_version must be 1.' }
-    if ($null -eq $manifest.equations) { throw 'Manifest must contain an equations array.' }
-    if ($null -eq $manifest.references) {
-        $manifest | Add-Member -NotePropertyName references -NotePropertyValue @()
+    if ($null -eq $manifest.PSObject.Properties['equations'] -or $null -eq $manifest.equations) {
+        throw 'Manifest must contain an equations array.'
+    }
+    if ($null -eq $manifest.PSObject.Properties['references'] -or $null -eq $manifest.references) {
+        $manifest | Add-Member -NotePropertyName references -NotePropertyValue @() -Force
+    }
+    if ($null -eq $manifest.PSObject.Properties['reference_brackets'] -or [string]::IsNullOrWhiteSpace($manifest.reference_brackets)) {
+        # CJGE: references read "式（5）" with full-width brackets around the MathType number.
+        $manifest | Add-Member -NotePropertyName reference_brackets -NotePropertyValue 'fullwidth' -Force
     }
     return $manifest
+}
+
+function Get-EquationPunctuation {
+    param([Parameter(Mandatory)]$Equation)
+    if ($null -eq $Equation.PSObject.Properties['punctuation'] -or [string]::IsNullOrEmpty([string]$Equation.punctuation)) {
+        return $null
+    }
+    return [string]$Equation.punctuation
 }
 
 function Assert-Manifest {
@@ -343,6 +357,16 @@ function Assert-Manifest {
             throw "Equation '$($equation.id)' cannot be numbered unless layout is display."
         }
         if ([string]$equation.tex -match '[\r\n]') { throw "Equation '$($equation.id)' TeX must be one line." }
+        $punctuation = Get-EquationPunctuation -Equation $equation
+        if ($null -ne $punctuation) {
+            if (@([string][char]0xFF0C, [string][char]0x3002, [string][char]0xFF1B, ',', '.', ';') -notcontains $punctuation) {
+                throw "Equation '$($equation.id)' punctuation must be one of ，。； , . ;"
+            }
+            if ([string]$equation.layout -ne 'display') { throw "Equation '$($equation.id)' punctuation is only for display equations." }
+        }
+    }
+    if (@('fullwidth', 'halfwidth') -notcontains [string]$Manifest.reference_brackets) {
+        throw 'reference_brackets must be "fullwidth" or "halfwidth".'
     }
     foreach ($reference in @($Manifest.references)) {
         if ([string]::IsNullOrWhiteSpace($reference.marker)) { throw 'Every reference requires a marker.' }
@@ -401,9 +425,61 @@ function Assert-PresentationManifest {
     }
 }
 
-# MathType's default "Full" size in the Word template: a natural-size object corresponds to 12 pt math,
-# the same size the Word workflow uses for body-text equations.
+# MathType's default "Full" size in the Word template: a natural-size object corresponds to 12 pt math.
+# When equation preferences are applied (default: CJGE, config/cjge_equation_preferences.eqp) the
+# natural size follows that file's Full size (10.5 pt for CJGE).
 $script:MathTypeNativeFontPoints = 12.0
+$script:DefaultEquationPreferences = Join-Path $script:PluginRoot 'config\cjge_equation_preferences.eqp'
+$script:EquationPreferencesPath = $null
+$script:ConversionFiles = [System.Collections.Generic.List[string]]::new()
+
+function Resolve-EquationPreferences {
+    param($Manifest)
+    $value = $null
+    if ($null -ne $Manifest -and $null -ne $Manifest.PSObject.Properties['equation_preferences']) {
+        $value = [string]$Manifest.equation_preferences
+    }
+    if ($value -eq 'none') { return $null }
+    $path = if ([string]::IsNullOrWhiteSpace($value)) { $script:DefaultEquationPreferences } else { $value }
+    if (-not (Test-Path -LiteralPath $path)) { throw "Equation preference file not found: $path" }
+    return (Resolve-Path -LiteralPath $path).Path
+}
+
+function Get-PreferenceFullSize {
+    param([Parameter(Mandatory)][string]$Path)
+    $match = Select-String -LiteralPath $Path -Pattern '^Full=([\d.]+)\s*pt' | Select-Object -First 1
+    if ($null -eq $match) { return 12.0 }
+    return [double]$match.Matches[0].Groups[1].Value
+}
+
+function Invoke-EquationPreferencesTool {
+    param([Parameter(Mandatory)][string[]]$Arguments)
+    $python = Get-Command python.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($null -eq $python) { $python = Get-Command python -ErrorAction Stop | Select-Object -First 1 }
+    $tool = Join-Path $PSScriptRoot 'mathtype_prefs.py'
+    $env:PYTHONIOENCODING = 'utf-8'
+    $output = & $python.Source $tool @Arguments 2>&1
+    $json = $output | Where-Object { "$_".StartsWith('{') } | Select-Object -Last 1
+    if ($null -eq $json) { throw "Equation preference tool returned no result: $($output -join ' ')" }
+    $result = $json | ConvertFrom-Json
+    if (-not $result.ok) { throw "Equation preference tool failed: $($result.error)" }
+    return $result
+}
+
+function Update-ConversionDocumentPreferences {
+    # PowerPoint equations are converted in a hidden Word document; restyle it with the equation
+    # preferences at file level (no clipboard, no dialogs) and reopen it before copying the object.
+    $work = Join-Path $script:UserConfigDirectory 'work'
+    New-Item -ItemType Directory -Path $work -Force | Out-Null
+    $path = Join-Path $work ('conversion-' + [Guid]::NewGuid().ToString('N') + '.docx')
+    $script:Document.SaveAs2($path, 16)
+    $script:Document.Close(0)
+    Release-ComObject $script:Document
+    $script:ConversionFiles.Add($path)
+    $null = Invoke-EquationPreferencesTool -Arguments @('docx', $path, $path, '--overwrite', '--no-document-preferences', '--preferences', $script:EquationPreferencesPath)
+    $script:Document = $script:Word.Documents.Open($path, $false, $false, $false)
+    $script:Selection = $script:Word.Selection
+}
 
 function Get-PresentationEquationFontPoints {
     param([Parameter(Mandatory)]$Equation, [Parameter(Mandatory)]$Manifest, $MarkerShape)
@@ -589,6 +665,18 @@ function Convert-Equation {
     $shape = Get-MathTypeShapeNear -Position $position
     Release-ComObject $markerRange
 
+    # CJGE: the sentence punctuation (，or 。) follows the equation, before the number.
+    $punctuation = Get-EquationPunctuation -Equation $Equation
+    if ($null -ne $punctuation) {
+        $afterObject = $shape.Range.End
+        $punctuationRange = $script:Document.Range($afterObject, $afterObject)
+        $punctuationRange.InsertAfter($punctuation)
+        $punctuationRange.Font.NameFarEast = 'SimSun'
+        $punctuationRange.Font.Name = 'Times New Roman'
+        Release-ComObject $punctuationRange
+        Write-Log -Level INFO -Message "Added punctuation '$punctuation' after '$($Equation.id)'."
+    }
+
     $numberField = $null
     if ([bool]$Equation.numbered) {
         $paragraph = $shape.Range.Paragraphs.Item(1)
@@ -629,6 +717,92 @@ function Insert-NativeReference {
         throw "MathType did not resolve the reference marker '$($Reference.marker)'."
     }
     Release-ComObject $markerRange
+}
+
+function Get-FieldSpan {
+    param([Parameter(Mandatory)]$Field)
+    # Field.Select() selects the whole field (begin char .. end char) regardless of field type.
+    $Field.Select()
+    return @($script:Selection.Start, $script:Selection.End)
+}
+
+function Convert-ReferencesToFullWidth {
+    # CJGE writes references as 式（5）: full-width brackets around the MathType number.
+    # MathType's reference shows the whole "(5)" bookmark, so an inner bookmark "<ZEqnNum…>_n" is
+    # placed on the number's SEQ field, the nested REF points to it, and "（" "）" wrap the
+    # GOTOBUTTON field. The reference still jumps to the equation and follows renumbering.
+    $targets = @()
+    for ($index = 1; $index -le $script:Document.Fields.Count; $index++) {
+        $field = $script:Document.Fields.Item($index)
+        if ($field.Code.Text -match '^\s*GOTOBUTTON\s+(ZEqnNum\d+)\b') { $targets += $Matches[1] }
+        Release-ComObject $field
+    }
+    foreach ($target in ($targets | Sort-Object -Unique)) {
+        $inner = "${target}_n"
+        if ($script:Document.Bookmarks.Exists($inner)) { continue }
+        $numberRange = $script:Document.Bookmarks.Item($target).Range
+        $seqField = $null
+        # The number sits inside MathType's MACROBUTTON code, so search all fields by position.
+        for ($fieldIndex = 1; $fieldIndex -le $script:Document.Fields.Count; $fieldIndex++) {
+            $candidate = $script:Document.Fields.Item($fieldIndex)
+            if ($candidate.Code.Text -match '^\s*SEQ\s+MTEqn\s+\\c\b' -and
+                $candidate.Code.Start -ge $numberRange.Start -and $candidate.Code.End -le $numberRange.End) {
+                $seqField = $candidate
+                break
+            }
+            Release-ComObject $candidate
+        }
+        if ($null -eq $seqField) { throw "Equation number $target has no SEQ MTEqn \c field." }
+        $span = Get-FieldSpan -Field $seqField
+        $seqRange = $script:Document.Range($span[0], $span[1])
+        $null = $script:Document.Bookmarks.Add($inner, $seqRange)
+        Release-ComObject $seqRange
+        Release-ComObject $seqField
+        Release-ComObject $numberRange
+    }
+
+    $converted = 0
+    while ($true) {
+        # Re-scan after every edit: inserting brackets shifts positions and field indexes.
+        $goto = $null
+        for ($index = 1; $index -le $script:Document.Fields.Count; $index++) {
+            $field = $script:Document.Fields.Item($index)
+            if ($field.Code.Text -match '^\s*GOTOBUTTON\s+(ZEqnNum\d+)\b') {
+                $target = $Matches[1]
+                $hasPlainRef = $false
+                for ($nestedIndex = 1; $nestedIndex -le $field.Code.Fields.Count; $nestedIndex++) {
+                    $nested = $field.Code.Fields.Item($nestedIndex)
+                    if ($nested.Code.Text -match "^\s*REF\s+$target\s") { $hasPlainRef = $true }
+                    Release-ComObject $nested
+                }
+                if ($hasPlainRef) { $goto = $field; break }
+            }
+            Release-ComObject $field
+        }
+        if ($null -eq $goto) { break }
+        for ($nestedIndex = 1; $nestedIndex -le $goto.Code.Fields.Count; $nestedIndex++) {
+            $nested = $goto.Code.Fields.Item($nestedIndex)
+            if ($nested.Code.Text -match "^\s*REF\s+$target\s") {
+                $nested.Code.Text = " REF ${target}_n \h \* MERGEFORMAT "
+                $null = $nested.Update()
+            }
+            Release-ComObject $nested
+        }
+        $span = Get-FieldSpan -Field $goto
+        $closing = $script:Document.Range($span[1], $span[1])
+        $closing.InsertAfter([string][char]0xFF09)
+        $closing.Font.NameFarEast = 'SimSun'
+        $opening = $script:Document.Range($span[0], $span[0])
+        $opening.InsertBefore([string][char]0xFF08)
+        $opening.Font.NameFarEast = 'SimSun'
+        Release-ComObject $closing
+        Release-ComObject $opening
+        Release-ComObject $goto
+        $converted++
+    }
+    $script:Selection.SetRange(0, 0)
+    Write-Log -Level INFO -Message "Converted $converted reference(s) to full-width brackets."
+    return $converted
 }
 
 function Save-DocumentAtomically {
@@ -729,6 +903,7 @@ function Add-MathTypeEquationToSlide {
         if ($script:Document.InlineShapes.Count -ne ($before + 1)) {
             throw 'Hidden Word conversion did not create exactly one MathType object.'
         }
+        if ($null -ne $script:EquationPreferencesPath) { Update-ConversionDocumentPreferences }
         $wordShape = $script:Document.InlineShapes.Item($script:Document.InlineShapes.Count)
         $nativeHeight = [double]$wordShape.Height
         $wordShape.Range.Copy()
@@ -775,6 +950,10 @@ function Add-MathTypeEquationToSlide {
         $shape.Tags.Add('MT_SIZE_MODE', $sizeMode)
         $shape.Tags.Add('MT_NATIVE_HEIGHT_PT', ([string]([Math]::Round($nativeHeight, 3))))
         $shape.Tags.Add('MT_FONT_PT', ([string]$FontPoints))
+        $shape.Tags.Add('MT_NATIVE_FONT_PT', ([string]$script:MathTypeNativeFontPoints))
+        if ($null -ne $script:EquationPreferencesPath) {
+            $shape.Tags.Add('MT_EQUATION_PREFERENCES', [IO.Path]::GetFileName($script:EquationPreferencesPath))
+        }
         return $shape
     }
     catch {
@@ -826,6 +1005,10 @@ function Invoke-RenderPptx {
     $output = Resolve-OutputFile -Path $OutputPath -Extension '.pptx'
     $manifest = Read-PresentationManifest -Path $ManifestPath
     Assert-PresentationManifest -Manifest $manifest
+    $script:EquationPreferencesPath = Resolve-EquationPreferences -Manifest $manifest
+    if ($null -ne $script:EquationPreferencesPath) {
+        $script:MathTypeNativeFontPoints = Get-PreferenceFullSize -Path $script:EquationPreferencesPath
+    }
 
     try {
         Start-Word
@@ -845,6 +1028,7 @@ function Invoke-RenderPptx {
     finally {
         Stop-PowerPoint
         Stop-Word
+        foreach ($file in $script:ConversionFiles) { Remove-Item -LiteralPath $file -Force -ErrorAction SilentlyContinue }
     }
     Write-JsonResult ([ordered]@{
         ok = $true
@@ -852,6 +1036,8 @@ function Invoke-RenderPptx {
         input_path = $input
         output_path = $output
         equations = @($manifest.equations).Count
+        equation_preferences = $script:EquationPreferencesPath
+        math_native_font_pt = $script:MathTypeNativeFontPoints
         object_type = 'Equation.DSMT4 floating OLE'
         numbering_and_references = 'Not available through the MathType 7 PowerPoint integration.'
         validation = $validation
@@ -888,7 +1074,9 @@ function Get-PresentationValidationReport {
                 if ($sizeMode -eq 'font_pt') {
                     $nativeHeight = [double]$shape.Tags.Item('MT_NATIVE_HEIGHT_PT')
                     $fontPt = [double]$shape.Tags.Item('MT_FONT_PT')
-                    $expectedHeight = $nativeHeight * ($fontPt / $script:MathTypeNativeFontPoints)
+                    $nativeFontTag = [string]$shape.Tags.Item('MT_NATIVE_FONT_PT')
+                    $nativeFont = if ([string]::IsNullOrWhiteSpace($nativeFontTag)) { 12.0 } else { [double]$nativeFontTag }
+                    $expectedHeight = $nativeHeight * ($fontPt / $nativeFont)
                     if ([Math]::Abs([double]$shape.Height - $expectedHeight) -gt 0.5) {
                         $errors.Add("$($shape.Name) was resized: height $([Math]::Round($shape.Height, 2)) pt does not match its $fontPt pt math size ($([Math]::Round($expectedHeight, 2)) pt).")
                     }
@@ -1086,6 +1274,10 @@ function Invoke-Render {
             Insert-NativeReference -Reference $reference -TargetField $numberFields[[string]$reference.target]
         }
         $script:Document.Fields.Update() | Out-Null
+        if ([string]$manifest.reference_brackets -eq 'fullwidth' -and @($manifest.references).Count -gt 0) {
+            $null = Convert-ReferencesToFullWidth
+            $script:Document.Fields.Update() | Out-Null
+        }
         $validation = Save-DocumentAtomically -Destination $output -Manifest $manifest
     }
     finally {
@@ -1102,6 +1294,7 @@ function Invoke-Render {
         references = @($manifest.references).Count
         number_format = '(1), (2), (3), ...'
         reference_mechanism = 'MathType-native GOTOBUTTON/REF fields'
+        reference_brackets = [string]$manifest.reference_brackets
         validation = $validation
     })
 }
@@ -1179,6 +1372,12 @@ function Get-ValidationReport {
         }
         elseif ($code -match '^\s*GOTOBUTTON\s+(ZEqnNum\d+)\b') {
             $referenceTargets += $Matches[1]
+        }
+        elseif ($code -match '^\s*REF\s+(ZEqnNum\d+_n)\b') {
+            # Full-width (CJGE) reference: nested REF to the number-only bookmark.
+            if (-not $script:Document.Bookmarks.Exists($Matches[1])) {
+                $errors.Add("Full-width reference points to a missing number bookmark: $($Matches[1])")
+            }
         }
         Release-ComObject $field
     }

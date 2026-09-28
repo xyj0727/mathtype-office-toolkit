@@ -57,6 +57,15 @@ Rules:
 - `tex` is non-empty and contains no newline.
 - `layout` is `inline` or `display`.
 - `numbered: true` is legal only for `display`.
+- Optional `punctuation` (display equations only): `，` `。` `；` or `,` `.` `;`, inserted between the equation and its number (CJGE: `，` before 式中, `。` at a sentence end).
+
+Optional top-level fields (defaults give the CJGE format, see [cjge-format.md](cjge-format.md)):
+
+| Field | Default | Meaning |
+|---|---|---|
+| `reference_brackets` | `"fullwidth"` | `fullwidth` renders 式（n）; `halfwidth` keeps MathType's `(n)` |
+| `equation_preferences` | CJGE `.eqp` | MathType preference file used to re-typeset every equation; `"none"` keeps MathType's current defaults |
+| `display_layout` | `"table"` | `table` = 1x3 borderless table (CJGE layout profile); `tab` = MathType's tab layout |
 - A reference target names an existing numbered equation.
 
 Semantic classes map to schema v1 as follows:

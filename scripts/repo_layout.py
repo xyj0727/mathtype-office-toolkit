@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Apply the word-mathtype-mcp (songsongshuo785-art) MathType display layout to a rendered DOCX.
+"""Apply the table display layout to a rendered DOCX (default profile: CJGE, config/cjge_layout_profile.json;
+the word-mathtype-mcp profile config/repo_format_profile.json can be passed with --profile).
 
 Layout (mirrors paper_core/export/word_postprocessor._apply_formula_paragraph):
   * each numbered/unnumbered MathType display paragraph becomes a 1x3 borderless table;
@@ -23,7 +24,7 @@ import shutil
 import sys
 from pathlib import Path
 
-DEFAULT_PROFILE = Path(__file__).resolve().parent.parent / "config" / "repo_format_profile.json"
+DEFAULT_PROFILE = Path(__file__).resolve().parent.parent / "config" / "cjge_layout_profile.json"
 
 WD_SEPARATE_BY_TABS = 1
 WD_ALIGN_CENTER = 1

@@ -15,7 +15,7 @@ from typing import Any, BinaryIO
 
 
 SERVER_NAME = "mathtype-for-word"
-SERVER_VERSION = "1.0.0"
+SERVER_VERSION = "1.1.0"
 SCRIPT_PATH = Path(__file__).with_name("mathtype-word.ps1")
 DEFAULT_PROTOCOL_VERSION = "2025-06-18"
 
@@ -73,7 +73,13 @@ TOOLS: list[dict[str, Any]] = [
         "description": (
             "Replace manifest markers in a DOCX with genuine Equation.DSMT4 MathType OLE equations. "
             "Numbered displays use MathType-native MTPlaceRef/SEQ fields in (1) format. References use "
-            "MathType's MTReference placeholder and GOTOBUTTON/REF pipeline, never Word numbered lists."
+            "MathType's MTReference placeholder and GOTOBUTTON/REF pipeline, never Word numbered lists. "
+            "Default output follows the CJGE MathType format: equations re-typeset with "
+            "config/cjge_equation_preferences.eqp (10.5 pt, TNR italic variables, Symbol italic Greek, bold "
+            "italic vectors), 1x3 table display layout with (n) in Times New Roman 10.5 pt, optional "
+            "punctuation between equation and number, and full-width references. Manifest options: "
+            "equation_preferences (path or 'none'), display_layout ('table' or 'tab'), reference_brackets "
+            "('fullwidth' or 'halfwidth'), per-equation punctuation."
         ),
         "inputSchema": {
             "type": "object",
@@ -99,13 +105,21 @@ TOOLS: list[dict[str, Any]] = [
         "description": (
             "Open a DOCX read-only and verify genuine Equation.DSMT4 objects, simple MathType-native "
             "number fields, native references and target bookmarks, sequential numbering, resolved "
-            "markers, and absence of Word built-in OMath equations."
+            "markers, absence of Word built-in OMath equations, and (by default) that every equation "
+            "is typeset in the CJGE MathType format."
         ),
         "inputSchema": {
             "type": "object",
             "properties": {
                 "document_path": {"type": "string", "description": "Absolute path to the DOCX."},
                 "manifest_path": {"type": "string", "description": "Optional absolute path to the render manifest."},
+                "equation_preferences": {
+                    "type": "string",
+                    "description": (
+                        "Also verify that every equation is typeset with this MathType preference file "
+                        "(.eqp). Default: config/cjge_equation_preferences.eqp. Pass 'none' to skip."
+                    ),
+                },
             },
             "required": ["document_path"],
             "additionalProperties": False,
@@ -143,13 +157,43 @@ TOOLS: list[dict[str, Any]] = [
         },
     },
     {
+        "name": "apply_mathtype_equation_preferences",
+        "description": (
+            "Re-typeset every MathType equation in a DOCX with a MathType preference file (.eqp), the "
+            "silent equivalent of MathType's Format Equations. Default: CJGE (config/"
+            "cjge_equation_preferences.eqp: Full 10.5 pt, sub/superscripts 58 %, variables Times New "
+            "Roman italic, functions upright, lower-case Greek Symbol italic, vectors/matrices bold italic). "
+            "Edits the file package directly (no clipboard, no dialogs); numbers, references and fields are "
+            "untouched, and the preferences are stored in the document for equations added later."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "input_path": {"type": "string", "description": "Absolute path to the DOCX."},
+                "output_path": {"type": "string", "description": "Absolute path for the re-typeset DOCX."},
+                "preferences_path": {"type": "string", "description": "Optional .eqp file; default CJGE."},
+                "overwrite": {"type": "boolean", "default": False},
+            },
+            "required": ["input_path", "output_path"],
+            "additionalProperties": False,
+        },
+        "annotations": {
+            "title": "Apply MathType Equation Preferences (CJGE)",
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        },
+    },
+    {
         "name": "apply_mathtype_repo_layout",
         "description": (
-            "Apply the word-mathtype-mcp (songsongshuo785-art) display-equation format to a rendered DOCX: each "
-            "MathType display becomes a 1x3 borderless table (72 pt side cells, equation centred, native MathType "
-            "number right-aligned in the body font, zero padding, 'at least' 20 pt lines). Converts in place, so "
-            "MathType objects, number fields, ZEqnNum bookmarks and references are preserved. Run after "
-            "render_mathtype_word_document, then validate_mathtype_word_document."
+            "Convert MathType display equations to a 1x3 borderless table: equation centred, native MathType "
+            "number right-aligned. Default profile CJGE (config/cjge_layout_profile.json: number Times New "
+            "Roman 10.5 pt, 'at least' 15.6 pt lines, 72 pt side cells, zero padding); the word-mathtype-mcp "
+            "profile is config/repo_format_profile.json. Converts in place, so MathType objects, number "
+            "fields, ZEqnNum bookmarks and references are preserved. render_mathtype_word_document already "
+            "applies it unless the manifest sets display_layout to 'tab'."
         ),
         "inputSchema": {
             "type": "object",
@@ -490,6 +534,92 @@ def _apply_repo_layout(arguments: dict[str, Any]) -> dict[str, Any]:
         }
 
 
+def _run_python_tool(script: str, argv: list[str], action: str, timeout: int = 600) -> dict[str, Any]:
+    command = [sys.executable, str(Path(__file__).with_name(script)), *argv]
+    env = dict(os.environ, PYTHONIOENCODING="utf-8")
+    try:
+        completed = subprocess.run(
+            command, capture_output=True, text=True, encoding="utf-8", timeout=timeout, env=env, check=False
+        )
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "action": action, "error": f"Timed out after {timeout} s."}
+    lines = [line for line in completed.stdout.splitlines() if line.strip()]
+    try:
+        return json.loads(lines[-1])
+    except (IndexError, json.JSONDecodeError):
+        return {"ok": False, "action": action, "error": f"{script} returned no JSON result.",
+                "stderr": completed.stderr[-2000:]}
+
+
+def _apply_equation_preferences(arguments: dict[str, Any]) -> dict[str, Any]:
+    argv = ["docx", str(arguments["input_path"]), str(arguments["output_path"])]
+    if arguments.get("preferences_path"):
+        argv += ["--preferences", str(arguments["preferences_path"])]
+    if arguments.get("overwrite"):
+        argv.append("--overwrite")
+    return _run_python_tool("mathtype_prefs.py", argv, "apply-equation-preferences")
+
+
+def _check_equation_preferences(document_path: str, preferences: str) -> dict[str, Any]:
+    argv = ["check", document_path]
+    if preferences:
+        argv += ["--preferences", preferences]
+    return _run_python_tool("mathtype_prefs.py", argv, "check-equation-preferences")
+
+
+def _validate_word(arguments: dict[str, Any]) -> dict[str, Any]:
+    result = _invoke_bridge("validate", arguments)
+    preferences = str(arguments.get("equation_preferences") or "")
+    if preferences.lower() == "none" or not result.get("counts"):
+        return result
+    check = _check_equation_preferences(str(arguments["document_path"]), preferences)
+    result["equation_format"] = check
+    if not check.get("ok"):
+        result["ok"] = False
+        result["errors"] = list(result.get("errors") or []) + list(
+            check.get("errors") or [check.get("error", "equation format check failed")]
+        )
+    return result
+
+
+def _render_word(arguments: dict[str, Any]) -> dict[str, Any]:
+    result = _invoke_bridge("render", arguments)
+    if not result.get("ok"):
+        return result
+    try:
+        manifest = json.loads(Path(arguments["manifest_path"]).read_text(encoding="utf-8-sig"))
+    except (OSError, json.JSONDecodeError) as exc:
+        result.update(ok=False, error=f"Could not re-read manifest: {exc}")
+        return result
+    output = str(result.get("output_path") or arguments["output_path"])
+    preferences = str(manifest.get("equation_preferences") or "")
+    layout = str(manifest.get("display_layout") or "table")
+    if layout not in ("table", "tab"):
+        result.update(ok=False, error="display_layout must be 'table' or 'tab'.")
+        return result
+    steps: dict[str, Any] = {}
+    if preferences.lower() != "none":
+        step = _apply_equation_preferences(
+            {"input_path": output, "output_path": output, "preferences_path": preferences, "overwrite": True}
+        )
+        steps["equation_preferences"] = step
+        if not step.get("ok"):
+            result.update(ok=False, error=f"Equation preferences failed: {step.get('error')}", post_processing=steps)
+            return result
+    if layout == "table":
+        step = _apply_repo_layout({"input_path": output, "output_path": output, "overwrite": True})
+        steps["display_layout"] = step
+        if not step.get("ok"):
+            result.update(ok=False, error=f"Table layout failed: {step.get('error')}", post_processing=steps)
+            return result
+    result["post_processing"] = steps
+    result["validation"] = _validate_word(
+        {"document_path": output, "manifest_path": arguments["manifest_path"], "equation_preferences": preferences}
+    )
+    result["ok"] = bool(result["validation"].get("ok"))
+    return result
+
+
 def _call_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
     actions = {
         "probe_mathtype_word": "probe",
@@ -503,6 +633,12 @@ def _call_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
     }
     if name == "apply_mathtype_repo_layout":
         result = _apply_repo_layout(arguments)
+    elif name == "apply_mathtype_equation_preferences":
+        result = _apply_equation_preferences(arguments)
+    elif name == "render_mathtype_word_document":
+        result = _render_word(arguments)
+    elif name == "validate_mathtype_word_document":
+        result = _validate_word(arguments)
     elif name not in actions:
         raise ValueError(f"Unknown tool: {name}")
     else:

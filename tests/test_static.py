@@ -201,7 +201,7 @@ class StaticContractTests(unittest.TestCase):
             self.assertIn(phrase, text)
 
     def test_readmes_name_exact_desktop_package(self) -> None:
-        for filename in ("README.md", "README-zhTW.md"):
+        for filename in ("README.md", "README-en.md", "README-zhTW.md"):
             text = (ROOT / filename).read_text(encoding="utf-8")
             self.assertIn("MathType-win-zh-7.11.1.462", text)
             self.assertIn("https://mathtype.tw/download/", text)
@@ -232,8 +232,9 @@ class StaticContractTests(unittest.TestCase):
     def test_silent_office_policy_and_issue_links(self) -> None:
         bridge = (ROOT / "scripts" / "mathtype-word.ps1").read_text(encoding="utf-8")
         skill = (ROOT / "skills" / "mathtype-for-word" / "SKILL.md").read_text(encoding="utf-8")
-        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        readme = (ROOT / "README-en.md").read_text(encoding="utf-8")
         readme_zh = (ROOT / "README-zhTW.md").read_text(encoding="utf-8")
+        readme_cn = (ROOT / "README.md").read_text(encoding="utf-8")
         self.assertIn("$script:Word.Visible = $false", bridge)
         self.assertIn("$script:Word.DisplayAlerts = 0", bridge)
         self.assertIn("$script:PowerPoint.DisplayAlerts = 1", bridge)
@@ -243,7 +244,9 @@ class StaticContractTests(unittest.TestCase):
         self.assertIn("Keep Word, PowerPoint, and MathType automation silent", skill)
         self.assertIn("Silent AI-agent operation", readme)
         self.assertIn("AI Agent 靜默操作", readme_zh)
-        for text in (readme, readme_zh):
+        self.assertIn("静默运行", readme_cn)
+        self.assertIn("AI Agent 快速测试", readme_cn)
+        for text in (readme, readme_zh, readme_cn):
             self.assertIn("https://github.com/xyj0727/mathtype-office-toolkit/issues", text)
             self.assertIn("en-paper-draft.docx", text)
             self.assertIn("en-presentation-draft.pptx", text)
@@ -252,7 +255,7 @@ class StaticContractTests(unittest.TestCase):
         self.assertIn("AI Agent 簡易測試 Prompt", readme_zh)
 
     def test_release_versions_are_aligned(self) -> None:
-        expected = "1.0.0"
+        expected = "1.1.0"
         expected_author = "Jia-Ming Zhou (Felimet)"
         for path in (
             ROOT / ".claude-plugin" / "plugin.json",

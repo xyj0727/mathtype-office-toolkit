@@ -1,15 +1,17 @@
 ---
 name: mathtype-for-word
-description: Create, replace, number, cross-reference, update, inspect, or validate mathematical equations in Microsoft Word DOCX and PowerPoint PPTX using genuine MathType 7 Equation.DSMT4 objects. Use for DOCX or PPTX equation authoring, TeX-to-MathType conversion, consistent IEEE-style mathematical typography, academic Chinese or English prose around formulas, centered displays, MathType Word equation numbers such as (1), the “equation reference goes here” workflow, or repairs that must avoid Word OMath, captions, numbered lists, images, and fake text equations.
+description: Create, replace, number, cross-reference, update, inspect, or validate mathematical equations in Microsoft Word DOCX and PowerPoint PPTX using genuine MathType 7 Equation.DSMT4 objects. Use for DOCX or PPTX equation authoring, TeX-to-MathType conversion, consistent IEEE-style mathematical typography, academic Chinese or English prose around formulas, centered displays, MathType Word equation numbers such as (1), the “equation reference goes here” workflow, CJGE (《岩土工程学报》) MathType format (10.5 pt, TNR italic variables, Symbol italic Greek, 式（n）references), or repairs that must avoid Word OMath, captions, numbered lists, images, and fake text equations.
 license: MIT
 metadata:
   author: Jia-Ming Zhou (Felimet)
-  version: 1.0.0
+  version: 1.1.0
 ---
 
 # MathType for Word and PowerPoint
 
 Create real MathType equations in DOCX and PPTX, preserving MathType-native Word numbering and references. Treat source Office files as user data: write a new output unless the user explicitly authorizes in-place replacement.
+
+**Default equation format: CJGE** (《岩土工程学报》). Read [cjge-format.md](references/cjge-format.md) before writing a manifest. The render tools apply it automatically; override only when the user names another journal or format.
 
 ## Non-negotiable invariants
 
@@ -21,6 +23,7 @@ Create real MathType equations in DOCX and PPTX, preserving MathType-native Word
 - Never substitute Word numbered lists, captions, `SEQ Equation`, OMath, Unicode-only text, images, or manually typed numbers. Use those only as an explicitly accepted, clearly labeled fallback when MathType is unavailable.
 - PowerPoint equations are centered, floating `Equation.DSMT4` OLE objects. PowerPoint has no MathType-native equivalent of Word's equation-number/reference fields, so do not imitate them with typed numbers or links.
 - Keep each symbol's mathematical role and font style consistent across display equations, inline math, prose, captions, and definitions.
+- Equation size and styles come from a MathType preference file (default `config/cjge_equation_preferences.eqp`), applied at file level with MathType's own API (`apply_mathtype_equation_preferences`). Never change MathType's global defaults or the registry to restyle a document.
 - Keep Word, PowerPoint, and MathType automation silent: leave application windows hidden, suppress modal alerts, do not steal focus, and do not automate visible UI with mouse, keyboard, `AppActivate`, or `SendKeys`. If a step cannot run silently, stop and report the limitation.
 
 ## Terminal selection
@@ -49,22 +52,23 @@ Create real MathType equations in DOCX and PPTX, preserving MathType-native Word
 2. Call `probe_mathtype_word`. Stop on a failed prerequisite; report the exact failed check.
 3. Scan the complete document twice. First inventory every equation candidate and later prose reference. Then classify each candidate as `inline`, `display`, or `display_numbered`, and each prose occurrence as `reference`, using [academic-equation-style.md](references/academic-equation-style.md). Decide every identifier, unique marker, TeX, layout, numbered state, reference marker, and target.
 4. Create a schema v1 JSON manifest. Read [workflow-and-schema.md](references/workflow-and-schema.md) for the exact contract and examples.
-5. For academic prose and mathematical typography, apply [academic-equation-style.md](references/academic-equation-style.md). A display equation must be introduced in the preceding prose and followed by “其中，” plus definitions of every symbol, index, superscript, subscript, unit, and physical meaning that is not already unambiguous. Audit the whole document so variables, vectors, matrices, functions, constants, indices, and units retain one consistent style.
-6. Call `render_mathtype_word_document`. Do not edit the same DOCX concurrently in Word.
-7. Optional: call `apply_mathtype_repo_layout` when the user wants the table-based display layout (see "Table display layout" below).
-8. Call `validate_mathtype_word_document` with the same manifest. A render is incomplete until validation returns `ok: true`.
-9. For complex fractions, matrices, aligned systems, accents, or nested scripts in a content-authoring task, open/render the result and visually inspect it. If the user has asked for formatting to be verified by tools only, rely on `validate_mathtype_word_document` instead.
+5. For academic prose and mathematical typography, apply [cjge-format.md](references/cjge-format.md) and [academic-equation-style.md](references/academic-equation-style.md). A display equation must be introduced in the preceding prose and followed by a “式中：” paragraph (no indent, items separated by “；”, ending with “。”) defining every symbol, index, superscript, subscript, unit, and physical meaning that is not already unambiguous. Set each display equation's `punctuation` (“，” before 式中, “。” at the end of a sentence), write descriptive subscripts upright (`\mathrm{}`), and write “式” before every `{{EQREF:…}}` marker. Audit the whole document so variables, vectors, matrices, functions, constants, indices, and units retain one consistent style.
+6. Call `render_mathtype_word_document`. Do not edit the same DOCX concurrently in Word. It renders the equations, then (unless the manifest opts out) re-typesets them with the CJGE preferences, applies the CJGE table display layout, writes references as 式（n）, and validates.
+7. If equations were added or edited later, call `apply_mathtype_equation_preferences` and `apply_mathtype_repo_layout` on the result, then `update_mathtype_word_fields`.
+8. Call `validate_mathtype_word_document` with the same manifest. It also checks that every equation matches the CJGE preferences (`equation_format`). A render is incomplete until validation returns `ok: true`.
+9. For complex fractions, matrices, aligned systems, accents, or nested scripts in a content-authoring task, open/render the result and visually inspect it. In a formatting task never inspect visually: rely on `validate_mathtype_word_document`.
 10. Report the output path, counts, native number/reference mechanism, validation result, and any limitations.
 
-## Table display layout (optional)
+## Default format: CJGE
 
-`apply_mathtype_repo_layout` applies the display-equation format of [word-mathtype-mcp](https://github.com/songsongshuo785-art/word-mathtype-mcp) (profile: `config/repo_format_profile.json`, MIT, see `config/LICENSE-word-mathtype-mcp.txt`):
+Full rules and checklist: [cjge-format.md](references/cjge-format.md).
 
-- Each display equation becomes a 1x3 borderless table: side cells 72 pt (capped at text width / 4), zero cell padding, row height and cell lines "at least" 20 pt, vertically centred, no indents, 0 pt before/after, no tab stops.
-- The equation is centred in the middle cell; the number `(n)` is right-aligned in the right cell in the body font (Times New Roman / SimSun, 12 pt by default).
-- Numbers and references stay MathType-native (`MTPlaceRef`/`SEQ MTEqn`, `GOTOBUTTON`+`REF` to `ZEqnNum…`): the rendered tab-separated paragraph is converted in place with `Range.ConvertToTable`, so nothing is cut, pasted or rebuilt and no clipboard is used.
-- `validate_mathtype_word_document` accepts both the native tab layout and this table layout.
-- Body text, headings, captions, tables and header/footer are outside this skill's scope; format them with a document-formatting tool that skips MathType runs and equation tables, before and after the MathType steps.
+- **Sizes and styles** — `config/cjge_equation_preferences.eqp`: Full 10.5 pt, sub/superscripts 58 %, Text/Function/Number Times New Roman upright, Variable Times New Roman italic, lower-case Greek Symbol italic, upper-case Greek and Symbol upright, Vector-Matrix Times New Roman bold italic. `apply_mathtype_equation_preferences` re-typesets each equation's MTEF with MathType's API (MathPage.wll `MTXFormSetPrefs` + `MTXFormEqn`), writes MathType's new WMF preview and size, and stores the preferences in the document (`MTPreferences`) so equations the user adds later use them too. No clipboard, no dialogs.
+- **Display layout** — `config/cjge_layout_profile.json` (`apply_mathtype_repo_layout`): 1x3 borderless table, equation centred, number `(n)` right-aligned in Times New Roman 10.5 pt, "at least" 15.6 pt lines, zero padding, no space before/after. The rendered tab paragraph is converted in place (`Range.ConvertToTable`), so numbers and references stay MathType-native. The older word-mathtype-mcp profile remains available as `config/repo_format_profile.json`.
+- **Punctuation** — per-equation `punctuation` (“，” “。” “；” or ASCII , . ;) is inserted between the equation and its number in 宋体.
+- **References** — `reference_brackets: "fullwidth"` (default) renders 式（n）: an inner bookmark `ZEqnNum…_n` on the number's `SEQ MTEqn` field, the nested `REF` points to it, and full-width brackets wrap the `GOTOBUTTON`. Use `"halfwidth"` for MathType's plain `(n)`.
+- **Simultaneous equations** — one number for the group: `\left.\begin{array}{l}…\\ …\end{array}\right\}` (a space after `\\`; `aligned` and `\cr` are not supported by MathType's TeX import).
+- **Opt out** — manifest `equation_preferences: "none"` keeps MathType's current defaults; `display_layout: "tab"` keeps MathType's tab layout; `validate_mathtype_word_document` accepts `equation_preferences: "none"` to skip the format check. Body text, headings, captions, tables and header/footer are outside this skill; format them with a document-formatting tool that skips MathType runs and equation tables.
 
 ## Mandatory PowerPoint workflow
 
@@ -73,7 +77,7 @@ Create real MathType equations in DOCX and PPTX, preserving MathType-native Word
 3. Put each `{{MATH:id}}` marker alone in a top-level text box. PowerPoint does not support inline external objects.
 4. Create a presentation schema v1 manifest, apply [academic-equation-style.md](references/academic-equation-style.md), and read [powerpoint-workflow.md](references/powerpoint-workflow.md).
 5. Call `render_mathtype_powerpoint_presentation`, then `validate_mathtype_powerpoint_presentation` with the same manifest.
-6. Render every output slide and inspect the full-size image. Structural OLE checks do not prove legibility or absence of overlap.
+6. Equations are re-typeset with the same CJGE preferences as Word and sized to one uniform math size (the marker text size by default). In a content task, render every output slide and inspect it for overlap; in a formatting task rely on `validate_mathtype_powerpoint_presentation` only.
 7. Report that the result contains editable floating MathType OLE objects and that Word-style dynamic numbering/references are unavailable in PPTX.
 
 ## MCP tools
@@ -83,9 +87,10 @@ Use the bundled local MCP server when available:
 - `probe_mathtype_word`: read-only prerequisite check.
 - `configure_mathtype_word_defaults`: persist the packaged default profile and MathType warning preferences. Invoke only when the user asks to configure defaults or during an explicitly requested installation.
 - `render_mathtype_word_document`: marker-driven conversion and reference placement.
-- `validate_mathtype_word_document`: read-only structural validation.
+- `validate_mathtype_word_document`: read-only structural validation, plus the CJGE equation-format check (`equation_preferences`, default CJGE, `none` to skip).
 - `update_mathtype_word_fields`: update number/reference fields after moving, adding, or deleting equations.
-- `apply_mathtype_repo_layout`: optional word-mathtype-mcp table layout for display equations, applied in place.
+- `apply_mathtype_equation_preferences`: re-typeset every equation with a MathType preference file (default CJGE) and store it in the document.
+- `apply_mathtype_repo_layout`: table display layout (default CJGE profile), applied in place.
 - `probe_mathtype_powerpoint`: verify the desktop PowerPoint and MathType 7 integration.
 - `render_mathtype_powerpoint_presentation`: replace marker-only text boxes with centered, editable MathType OLE objects.
 - `validate_mathtype_powerpoint_presentation`: verify expected named OLE objects, centering, and resolved markers.
@@ -111,6 +116,7 @@ pwsh.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File script
 - Promote a display to `display_numbered` when the full-document scan finds a specific later reference to it.
 - Only display equations may set `numbered: true`. Never create a reference to an unnumbered equation.
 - Every reference target must exist and be numbered.
+- Optional manifest fields: `punctuation` per display equation; top-level `reference_brackets` (`fullwidth` default), `equation_preferences` (path to .eqp, default CJGE, or `none`), `display_layout` (`table` default, or `tab`).
 - Keep TeX on one line. Prefer MathType-compatible TeX primitives. Do not depend on document preambles, user macros, packages, `\label`, or `\ref`.
 - Escape backslashes correctly in JSON. For example, TeX `\frac{a}{b}` is JSON string `"\\frac{a}{b}"`.
 

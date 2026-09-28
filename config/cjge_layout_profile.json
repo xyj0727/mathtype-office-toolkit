@@ -1,0 +1,8 @@
+{
+  "_comment": "CJGE (Chinese Journal of Geotechnical Engineering) display-equation layout used by apply_mathtype_repo_layout. Equation centred in the column, number (n) right-aligned in Times New Roman 10.5 pt (五号), no extra space before/after, 'at least' line spacing so tall equations are not clipped.",
+  "formula_side_cell_width_pt": 72,
+  "formula_placeholder_line_spacing_pt": 15.6,
+  "body_font_name": "Times New Roman",
+  "body_east_asia_font_name": "SimSun",
+  "body_font_size_pt": 10.5
+}

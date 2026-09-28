@@ -1,8 +1,8 @@
 # MathType Office Toolkit
 
-[English](README.md) | [简体中文](README-zhCN.md)
+[简体中文](README.md) | [English](README-en.md) | 繁體中文
 
-版本 **1.0.0**。本專案 fork 自 [felimet/mathtype-for-word](https://github.com/felimet/mathtype-for-word)（MIT），並擴充功能，詳見下方「本 Fork 的改進」。
+版本 **1.1.0**。預設公式格式為《岩土工程學報》（CJGE）MathType 規範，完整說明見[簡體中文 README](README.md) 與 [cjge-format.md](skills/mathtype-for-word/references/cjge-format.md)。本專案 fork 自 [felimet/mathtype-for-word](https://github.com/felimet/mathtype-for-word)（MIT），並擴充功能，詳見下方「本 Fork 的改進」。
 
 可安裝的 AI Agent skill、Codex/Claude plugin 與 MCP server，用於在 Microsoft Word 與 PowerPoint 建立可編輯的 MathType 7 公式；Word 文件另支援 MathType 原生公式編號與動態交叉引用。
 
@@ -159,6 +159,8 @@ Bridge 會保留來源檔，先驗證同層暫存 Office 檔，再以原子方�
 ## 本 Fork 的改進
 
 本專案 fork 自 [felimet/mathtype-for-word](https://github.com/felimet/mathtype-for-word)，新增：
+
+- **1.1.0 — CJGE 公式格式**：新增 `apply_mathtype_equation_preferences`（呼叫 MathType API 依偏好檔重排全部公式，等同 MathType「設定公式格式」，全程靜默）、CJGE 偏好與版式設定、公式後標點、全形引用「式（n）」、公式格式驗證、PPT 公式同樣套用 CJGE 樣式。
 
 - **表格式行間公式版式（選用）**：新增 MCP 工具 `apply_mathtype_repo_layout`，採用 [word-mathtype-mcp](https://github.com/songsongshuo785-art/word-mathtype-mcp) 的版式——1×3 無框線表格，公式置中、編號 `(n)` 靠右（兩側欄 72 pt、儲存格內距 0、行距「最小值 20 pt」、編號為 Times New Roman／宋體 12 pt）。原段落就地轉為表格，因此編號與引用仍是 MathType 原生欄位、可自動更新。`validate_mathtype_word_document` 同時接受定位點版式與表格版式。
 - **PowerPoint 公式字號一致**：依統一的數學字號（`font_pt`、`equation_font_pt` 或佔位文字的字號）縮放，不再固定 32 pt 高度，簡單公式與分式的字形大小一致，與 Word 相同。驗證器會檢查公式是否被拉伸變形。

@@ -18,6 +18,8 @@
 | Render fails with "property `Content` not found" right after opening the DOCX | The document is under `%TEMP%`, so Word opens it in Protected View | Move the input and output into a normal folder (for example Documents). |
 | Bridge error text is garbled / "invalid JSON" | Localized (e.g. Chinese) error text written in the ANSI code page | Fixed: the bridge now writes UTF-8. |
 | The user's PowerPoint closed after a PPTX job | PowerPoint is single-instance and the bridge attached to it | Fixed: the bridge now closes only its own presentation when PowerPoint was already running. |
+| MathType's *Format Equations* fails in Word with error 53 `MathPage.WLL` after reinstalling Office | `MathPage.wll` is missing from Word's startup folder | Copy `<MathType>\MathPage\64\MathPage.wll` (64-bit Office) into `%APPDATA%\Microsoft\Word\STARTUP` and restart Word. The toolkit itself calls the MathType API directly and does not need it in Word. |
+| `equation_format` errors in validation | Equations are not typeset with the CJGE preferences (edited or added later) | Run `apply_mathtype_equation_preferences`, then validate again. |
 | MCP server emits parse errors | A launcher/log wrote to stdout | Protocol output must be JSON only; keep diagnostics on stderr. |
 
 ## Recovery rules

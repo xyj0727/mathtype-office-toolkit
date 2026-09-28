@@ -65,6 +65,16 @@ GOTOBUTTON ZEqnNum394416
 
 This is why a literal `(1)` or a Word list cross-reference is not acceptable. It lacks MathType's target placement behavior and bookmark relationship.
 
+## Full-width references (CJGE)
+
+CJGE writes references as 式（5）. With `reference_brackets: "fullwidth"` (default) the bridge, after MathType has created the native reference:
+
+1. adds a bookmark `ZEqnNum…_n` around the number's `SEQ MTEqn \c` field (the digits only);
+2. points the nested `REF` inside the `GOTOBUTTON` at that bookmark (`REF ZEqnNum…_n \h`);
+3. wraps the `GOTOBUTTON` field in full-width brackets “（” “）”.
+
+The reference still jumps to the equation and shows the current number after a field update. `validate_mathtype_word_document` checks that every `ZEqnNum…_n` target exists. If MathType's own *Insert Equation Reference* is used later in Word, it produces the half-width `(n)` form.
+
 ## Why Word numbering is not equivalent
 
 Do not use these for the primary workflow:

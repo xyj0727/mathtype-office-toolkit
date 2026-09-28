@@ -1,4 +1,6 @@
-# Runtime uses only the Python standard library and PowerShell 7+ (pwsh.exe).
+# Runtime uses PowerShell 7+ (pwsh.exe) and Python 3.
 # Microsoft Word, PowerPoint, and MathType 7 are external desktop prerequisites.
-# Optional: apply_mathtype_repo_layout (table display layout) drives Word through pywin32.
+# CJGE equation preferences (mathtype_prefs.py) and the table display layout (repo_layout.py)
+# use the MathType API through pywin32 and edit the DOCX package with lxml.
 pywin32>=306
+lxml>=5.0
