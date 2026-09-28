@@ -224,6 +224,22 @@ def _fmt(value: float) -> str:
     return f"{value:.2f}".rstrip("0").rstrip(".")
 
 
+# VML shape styles may use any CSS length unit; Word writes exactly 72 pt as "1in".
+_CSS_UNIT_PT = {"pt": 1.0, "in": 72.0, "cm": 72.0 / 2.54, "mm": 72.0 / 25.4, "pc": 12.0, "px": 0.75}
+_CSS_LENGTH = r"(?<![-\w]){prop}:\s*(-?[\d.]+)\s*(pt|in|cm|mm|pc|px)?"
+
+
+def _css_length_pt(style: str, prop: str) -> float | None:
+    match = re.search(_CSS_LENGTH.format(prop=prop), style)
+    if not match:
+        return None
+    return float(match.group(1)) * _CSS_UNIT_PT[match.group(2) or "px"]
+
+
+def _set_css_length_pt(style: str, prop: str, value: float) -> str:
+    return re.sub(_CSS_LENGTH.format(prop=prop), f"{prop}:{_fmt(value)}pt", style)
+
+
 def _custom_properties_xml(existing: bytes | None, prefs_text: str) -> bytes:
     from lxml import etree
 
@@ -288,15 +304,15 @@ def apply_to_docx(input_path: str, output_path: str, preferences: str = "", over
                     ole_file.write_bytes(replaced.get(ole_part) or zin.read(ole_part))
                     wmf_file = work / (Path(ole_part).stem + ".wmf")
                     style = shape.get("style", "")
-                    old_h = float(re.search(r"height:([\d.]+)pt", style).group(1)) if "height:" in style else None
+                    old_h = _css_length_pt(style, "height")
                     width, height = restyle_ole_file(api, prefs, ole_file, wmf_file)
                     replaced[ole_part] = ole_file.read_bytes()
                     if image_part:
                         if not image_part.lower().endswith(".wmf"):
                             raise RuntimeError(f"Unsupported equation preview format: {image_part}")
                         replaced[image_part] = wmf_file.read_bytes()
-                    style = re.sub(r"width:[\d.]+pt", f"width:{_fmt(width)}pt", style)
-                    style = re.sub(r"height:[\d.]+pt", f"height:{_fmt(height)}pt", style)
+                    style = _set_css_length_pt(style, "width", width)
+                    style = _set_css_length_pt(style, "height", height)
                     shape.set("style", style)
                     obj.set(f"{{{NS['w']}}}dxaOrig", str(round(width * 20)))
                     obj.set(f"{{{NS['w']}}}dyaOrig", str(round(height * 20)))
@@ -369,6 +385,9 @@ def check_docx(document_path: str, preferences: str = "") -> dict:
     eqp = Path(preferences).resolve() if preferences else DEFAULT_PREFERENCES
     work = Path(tempfile.mkdtemp(prefix="mathtype-prefs-check-"))
     errors: list[str] = []
+    mismatched: list[str] = []
+    missing_size: list[str] = []
+    unreadable: list[str] = []
     checked = 0
     try:
         zin = zipfile.ZipFile(path)
@@ -383,27 +402,47 @@ def check_docx(document_path: str, preferences: str = "") -> dict:
                     shape = obj.find("v:shape", NS)
                     if ole is None or shape is None or not str(ole.get("ProgID", "")).startswith("Equation.DSMT"):
                         continue
-                    ole_part = _resolve(part, rels[ole.get(f"{{{NS['r']}}}id")])
-                    ole_file = work / f"check-{checked}.bin"
-                    ole_file.write_bytes(zin.read(ole_part))
-                    _header, mtef = read_equation_native(ole_file)
-                    wmf = work / f"check-{checked}.wmf"
-                    api.render_wmf(api.restyle(mtef, prefs), prefs, wmf)
-                    width, height = wmf_size_points(wmf.read_bytes())
+                    ole_part = "?"
+                    try:
+                        ole_part = _resolve(part, rels[ole.get(f"{{{NS['r']}}}id")])
+                        ole_file = work / f"check-{checked}.bin"
+                        ole_file.write_bytes(zin.read(ole_part))
+                        _header, mtef = read_equation_native(ole_file)
+                        wmf = work / f"check-{checked}.wmf"
+                        api.render_wmf(api.restyle(mtef, prefs), prefs, wmf)
+                        width, height = wmf_size_points(wmf.read_bytes())
+                    except Exception as exc:  # one unreadable object must not abort the whole check
+                        checked += 1
+                        unreadable.append(f"{ole_part}: {type(exc).__name__}: {exc}")
+                        continue
                     style = shape.get("style", "")
-                    doc_w = float(re.search(r"width:([\d.]+)pt", style).group(1))
-                    doc_h = float(re.search(r"height:([\d.]+)pt", style).group(1))
+                    doc_w = _css_length_pt(style, "width")
+                    doc_h = _css_length_pt(style, "height")
                     checked += 1
-                    if abs(doc_w - width) > 0.75 or abs(doc_h - height) > 0.75:
-                        errors.append(f"{ole_part}: size {doc_w:g}x{doc_h:g} pt does not match {eqp.name} "
-                                      f"({width:g}x{height:g} pt); run apply_mathtype_equation_preferences.")
+                    if doc_w is None or doc_h is None:
+                        missing_size.append(ole_part)
+                    elif abs(doc_w - width) > 0.75 or abs(doc_h - height) > 0.75:
+                        mismatched.append(f"{ole_part}: {doc_w:g}x{doc_h:g} pt, expected {width:g}x{height:g} pt")
         custom = zin.read("docProps/custom.xml").decode("utf-8") if "docProps/custom.xml" in zin.namelist() else ""
         stored = 'name="MTPreferences"' in custom
         zin.close()
     finally:
         shutil.rmtree(work, ignore_errors=True)
+    errors += _summarize(mismatched, f"equation(s) are not sized for {eqp.name}",
+                         "run apply_mathtype_equation_preferences")
+    errors += _summarize(missing_size, "equation shape(s) have no width/height in their VML style",
+                         "run apply_mathtype_equation_preferences")
+    errors += _summarize(unreadable, "equation object(s) could not be read", "re-insert them in MathType")
     return {"ok": not errors, "preferences": str(eqp), "equations_checked": checked,
             "document_preferences_stored": stored, "errors": errors}
+
+
+def _summarize(items: list[str], what: str, fix: str, limit: int = 5) -> list[str]:
+    """One summary line per problem type, listing at most ``limit`` examples, instead of one line per object."""
+    if not items:
+        return []
+    shown = "; ".join(items[:limit]) + (f"; ... and {len(items) - limit} more" if len(items) > limit else "")
+    return [f"{len(items)} {what}; {fix}. Examples: {shown}"]
 
 
 def apply_to_ole_directory(directory: str, preferences: str = "") -> dict:
@@ -424,7 +463,18 @@ def full_size_points(preferences: str = "") -> float:
     return float(match.group(1)) if match else 12.0
 
 
+
+def _utf8_stdio() -> None:
+    """Windows consoles default to an ANSI code page; JSON results may contain CJK paths."""
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):
+            pass
+
+
 def main() -> int:
+    _utf8_stdio()
     parser = argparse.ArgumentParser()
     sub = parser.add_subparsers(dest="cmd", required=True)
     d = sub.add_parser("docx")

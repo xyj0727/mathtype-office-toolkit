@@ -6,7 +6,7 @@ An MCP server and a cross-agent skill that let AI agents (Claude Code, Claude De
 
 **Default equation format: CJGE** (*Chinese Journal of Geotechnical Engineering*, 《岩土工程学报》): 10.5 pt, Times New Roman italic variables, Symbol italic lower-case Greek, bold italic vectors/matrices, right-aligned numbers and references written 式（n）.
 
-Version **1.1.0**. Forked from [felimet/mathtype-for-word](https://github.com/felimet/mathtype-for-word) (MIT) and extended; see [What this fork adds](#what-this-fork-adds).
+Version **1.2.0**. Forked from [felimet/mathtype-for-word](https://github.com/felimet/mathtype-for-word) (MIT) and extended; see [What this fork adds](#what-this-fork-adds).
 
 ---
 
@@ -76,16 +76,20 @@ The bridge is a PowerShell 7 script. The calling terminal may be PowerShell 7, B
 8. **Punctuation and CJGE references** — “，” or “。” between equation and number; references rendered as 式（n）.
 9. **Structural and format validation** — counts MathType objects, number and reference fields, bookmarks and sequential values; rejects OMath, leftover markers and broken references; checks every equation against the CJGE preferences.
 10. **Whole-document classification** — the skill scans the manuscript and decides which expressions are inline, unnumbered display, numbered display, or references.
+11. **Plain-text formula scan** — finds typed formulas and symbols in body text and tables (`σ1f = (σ3 + Δσ3)·Kp`, `T_ult`), proposes TeX and an action, and after review inserts the markers and writes the manifest. The CJGE strategy turns expressions into MathType and single symbols into Times New Roman italic text with real subscripts.
+12. **Batched, resumable rendering** — one isolated Word session per batch with a checkpoint after each; interrupted jobs resume, failed batches are retried split in half, and long jobs run in the background with a progress query.
+13. **No clipped inline equations** — exactly spaced paragraphs that hold a taller inline equation switch to "at least" spacing.
+14. **Body-text formatting and report** — CJGE layout for everything except equations (page, headings, body, three-line tables, references) and a compact per-role formatting report with profile deviations.
 
 **PowerPoint (`.pptx`)**
 
-11. **Editable floating MathType equations**, horizontally centred, named `MathType_<id>`, with their embedded MathML checked against the request.
-12. **Same style as Word** — equations are re-typeset with the same CJGE preferences and use one uniform math size (the marker text size by default).
+15. **Editable floating MathType equations**, horizontally centred, named `MathType_<id>`, with their embedded MathML checked against the request.
+16. **Same style as Word** — equations are re-typeset with the same CJGE preferences and use one uniform math size (the marker text size by default).
 
 **Safety**
 
-13. The source file is never modified; output goes to a new path and is published atomically.
-14. Word, PowerPoint and MathType run hidden and silently, and Word or PowerPoint windows the user already has open are never closed.
+17. The source file is never modified; output goes to a new path and is published atomically.
+18. Word, PowerPoint and MathType run hidden and silently, and Word or PowerPoint windows the user already has open are never closed; on a timeout only the Office process the toolkit started is terminated.
 
 ## MCP tools and skill
 
@@ -98,11 +102,17 @@ The bridge is a PowerShell 7 script. The calling terminal may be PowerShell 7, B
 | `probe_mathtype_word` | Word | ✓ | Check Windows, PowerShell, Word COM, MathType 7, its Word template and `Equation.DSMT4` registration. |
 | `probe_mathtype_powerpoint` | PowerPoint | ✓ | Same checks plus PowerPoint COM and the MathType PowerPoint add-in. |
 | `configure_mathtype_word_defaults` | Word | | Save the default number format `(1)` and MathType warning preferences. Run once after installing or reinstalling Office. |
-| `render_mathtype_word_document` | Word | | Replace `{{MATH:id}}` / `{{EQREF:id}}` markers with MathType equations, native numbers and references, then (by default) CJGE formatting, table layout, 式（n） references and validation. |
+| `scan_plain_text_math` | Word | | Find plain-text formulas and symbols (body and tables) and write a reviewable candidates file with suggested TeX and actions (`cjge` or `all` strategy). |
+| `prepare_mathtype_markers` | Word | | Apply reviewed candidates: `{{MATH:…}}` markers plus a manifest, or italic text with subscripts for simple symbols. |
+| `render_mathtype_word_document` | Word | | Replace `{{MATH:id}}` / `{{EQREF:id}}` markers with MathType equations, native numbers and references in resumable batches (optionally in the background), then (by default) CJGE formatting, table layout, line-spacing fix, 式（n） references and validation. |
+| `get_mathtype_render_status` | Word | | Progress, log tail and result of a batched or background render. |
+| `fix_mathtype_line_spacing` | Word | | Switch exactly spaced paragraphs that clip an inline equation to "at least". |
 | `apply_mathtype_equation_preferences` | Word | | Re-typeset every equation with a MathType preference file (default CJGE). |
 | `apply_mathtype_repo_layout` | Word | | Convert display equations to the 1×3 borderless table layout in place (default CJGE profile). |
 | `validate_mathtype_word_document` | Word | ✓ | Structural validation of objects, numbers, references, bookmarks and markers, plus the CJGE format check. |
 | `update_mathtype_word_fields` | Word | | Refresh all number and reference fields after edits. |
+| `apply_cjge_body_format` | Word | | CJGE layout of everything except equations from `config/cjge_body_profile.json`. |
+| `report_docx_formatting` | Word | ✓ | Compact formatting summary per paragraph role and table, with deviations from a profile. |
 | `render_mathtype_powerpoint_presentation` | PowerPoint | | Replace marker text boxes with centred, CJGE-styled, uniformly sized MathType equations. |
 | `validate_mathtype_powerpoint_presentation` | PowerPoint | ✓ | Verify named objects, centring, embedded MathML, math size and leftover markers. |
 
@@ -133,7 +143,9 @@ Measured from a published CJGE paper and the journal's author guidelines; full r
 
 Layout: equation centred in a 1×3 borderless table, number `(n)` Times New Roman 10.5 pt right-aligned, "at least" 15.6 pt lines, no space before/after; “，”/“。” between equation and number; references 式（n）with full-width brackets; simultaneous equations under one right brace with one number. Writing rules applied by the skill: descriptive subscripts upright (`W_{\mathrm{t}}`), index subscripts italic, units upright, minus “−”, and a “式中：” paragraph (no indent, items separated by “；”, ending with “。”).
 
-To keep MathType's own style instead, set `"equation_preferences": "none"`, `"display_layout": "tab"` and `"reference_brackets": "halfwidth"` in the manifest.
+To keep MathType's own style instead, set `"equation_preferences": "none"`, `"display_layout": "tab"` and `"reference_brackets": "halfwidth"` in the manifest; `"inline_line_spacing": "keep"` leaves paragraph spacing alone.
+
+Render arguments: `batch_size` (default 40), `resume` (default true), `background` (default false; recommended above about 150 equations) and `allow_unresolved_markers` (partial render).
 
 ## Output format
 
@@ -246,13 +258,16 @@ Use the installed MathType Office Toolkit for a smoke test. Run both prerequisit
 | Render hangs at "Insert Equation Number" (often after reinstalling Office) | Run `configure_mathtype_word_defaults`. The MathType Word add-in reads the `HKCU\Software\Design Science\DSMT7\WordCommands` values as REG_SZ strings. |
 | "property `Content` not found" right after opening the DOCX | The file is under `%TEMP%` and opens in Protected View; use a normal folder. |
 | `Error! Reference source not found.` | A `ZEqnNum…` bookmark was deleted; recreate the reference through MathType. |
+| Word RPC errors or a render timeout with many equations | Batching is automatic since 1.2.0; use `background: true` with `get_mathtype_render_status`, and call render again with the same arguments to resume after a failure. |
+| The top of fractions or superscripts is cut off in body text | Exact line spacing is lower than the equation; render fixes it, or run `fix_mathtype_line_spacing`. |
 
 Full table: [troubleshooting.md](skills/mathtype-for-word/references/troubleshooting.md).
 
 ## What this fork adds
 
-Compared with upstream [felimet/mathtype-for-word](https://github.com/felimet/mathtype-for-word) 1.3.0:
+Compared with upstream [felimet/mathtype-for-word](https://github.com/felimet/mathtype-for-word) 1.3.0 (full history in [CHANGELOG.md](CHANGELOG.md)):
 
+- **1.2.0 — large documents, plain-text formulas, body formatting**: `scan_plain_text_math` / `prepare_mathtype_markers` (detect typed formulas and symbols, insert markers, write the manifest; CJGE strategy for italic text symbols); batched rendering in isolated Word sessions with checkpoints, resume, split-and-retry and background jobs (`get_mathtype_render_status`); partial renders (`allow_unresolved_markers`); `fix_mathtype_line_spacing`, applied automatically; `apply_cjge_body_format` and `report_docx_formatting`. Fixes: endless marker search in table cells; format check crash on `1in` VML sizes; `charmap` errors with Chinese paths. Improvements: timestamped progress logs, the watchdog terminates only its own Office process, repeated validation errors are summarised.
 - **1.1.0 — CJGE equation format**: `apply_mathtype_equation_preferences` (MathType API re-typesetting, silent, stored in the document), CJGE preference and layout profiles, punctuation between equation and number, 式（n） references, equation-format validation, CJGE styling in PowerPoint, simultaneous-equation TeX pattern, manifests without `references` accepted.
 
 **1.0.0**:
@@ -271,6 +286,11 @@ Compared with upstream [felimet/mathtype-for-word](https://github.com/felimet/ma
 | `scripts/mcp_server.py`, `scripts/run-mcp.ps1` | Dependency-free stdio MCP server and launcher |
 | `scripts/mathtype_prefs.py` | Equation preferences and format check (`apply_mathtype_equation_preferences`) |
 | `scripts/repo_layout.py` | Table display layout (`apply_mathtype_repo_layout`) |
+| `scripts/mathtype_scan.py` | Plain-text formula scan and marker preparation |
+| `scripts/mathtype_batch.py` | Batched, resumable, background render jobs |
+| `scripts/docx_postprocess.py` | Inline-equation line-spacing check and fix |
+| `scripts/cjge_body_format.py` | CJGE body formatting and formatting report |
+| `config/cjge_body_profile.json` | CJGE body-text profile |
 | `config/cjge_equation_preferences.eqp`, `config/cjge_layout_profile.json` | CJGE MathType preferences and display layout |
 | `config/defaults.json` | Default Word equation-number profile |
 | `config/repo_format_profile.json` | word-mathtype-mcp format profile used by the table layout |

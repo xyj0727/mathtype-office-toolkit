@@ -188,7 +188,18 @@ def apply_layout(input_path: str, output_path: str, profile_path: str = "", over
     }
 
 
+
+def _utf8_stdio() -> None:
+    """Windows consoles default to an ANSI code page; JSON results may contain CJK paths."""
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):
+            pass
+
+
 def main() -> int:
+    _utf8_stdio()
     parser = argparse.ArgumentParser()
     parser.add_argument("input")
     parser.add_argument("output")

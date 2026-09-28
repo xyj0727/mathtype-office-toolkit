@@ -6,7 +6,7 @@
 
 **默认公式格式为《岩土工程学报》（CJGE）MathType 规范**：五号 10.5 磅、变量 Times New Roman 斜体、小写希腊字母 Symbol 斜体、矢量矩阵黑斜体、编号右对齐、正文引用写作“式（n）”。
 
-版本 **1.1.0**。基于 [felimet/mathtype-for-word](https://github.com/felimet/mathtype-for-word)（MIT）fork 并扩展，改进内容见[本 fork 的改进](#本-fork-的改进)。
+版本 **1.2.0**。基于 [felimet/mathtype-for-word](https://github.com/felimet/mathtype-for-word)（MIT）fork 并扩展，改进内容见[本 fork 的改进](#本-fork-的改进)。
 
 ---
 
@@ -76,16 +76,20 @@
 7. **公式后标点**：公式与编号之间自动加“，”或“。”。
 8. **结构化 + 格式校验**：检查公式对象、编号、引用、书签、占位符，以及每个公式是否符合 CJGE 字号和样式。
 9. **全文自动分类**：Skill 通读全文，判断每个表达式是行内公式、无编号行间公式、带编号行间公式还是引用。
+10. **扫描纯文本公式**：自动找出正文和表格里手打的公式和符号（如 `σ1f = (σ3 + Δσ3)·Kp`、`T_ult`），给出建议的 TeX 和处理方式，审阅后一键插入标记并生成清单。可选 CJGE 策略：表达式转 MathType，单个符号转 Times New Roman 斜体加 Word 下标。
+11. **大文档分批渲染**：每批一个独立 Word 进程，批后存档；崩溃后可断点续跑，失败的批次自动拆半重试；长任务可在后台运行并随时查询进度。
+12. **行内公式不被裁切**：固定行距段落里放了较高的行内公式时，自动改为“最小值”行距。
+13. **正文排版与格式报告**：按 CJGE 配置排版正文（页面、标题、正文、表格三线表、参考文献），不动公式；并输出按段落类型汇总的格式报告，可与配置对比列出不符项。
 
 **PowerPoint（`.pptx`）**
 
-10. **可编辑的浮动 MathType 公式**，水平居中，内容逐一核对。
-11. **与 Word 同一样式**：同样按 CJGE 偏好排版，整份演示文稿公式字号统一（默认跟随占位文字字号）。
+14. **可编辑的浮动 MathType 公式**，水平居中，内容逐一核对。
+15. **与 Word 同一样式**：同样按 CJGE 偏好排版，整份演示文稿公式字号统一（默认跟随占位文字字号）。
 
 **安全性**
 
-12. 从不修改源文件，结果写入新路径并原子替换。
-13. Word、PowerPoint、MathType 全程隐藏静默运行，不弹窗、不占用剪贴板改格式，**不会关闭你已经打开的 Word / PowerPoint**。
+16. 从不修改源文件，结果写入新路径并原子替换。
+17. Word、PowerPoint、MathType 全程隐藏静默运行，不弹窗、不占用剪贴板改格式，**不会关闭你已经打开的 Word / PowerPoint**；超时时只结束本工具自己启动的 Office 进程。
 
 ## 默认公式格式（CJGE）
 
@@ -129,11 +133,17 @@
 | `probe_mathtype_word` | Word | ✓ | 检查 Windows、PowerShell、Word COM、MathType 7、Word 模板和 `Equation.DSMT4` 注册 |
 | `probe_mathtype_powerpoint` | PowerPoint | ✓ | 同上，另检查 PowerPoint COM 和 MathType 的 PowerPoint 插件 |
 | `configure_mathtype_word_defaults` | Word | | 保存默认编号格式 `(1)` 和 MathType 警告偏好；安装后、重装 Office 后各运行一次 |
-| `render_mathtype_word_document` | Word | | 按清单生成 MathType 公式、原生编号和引用，并默认完成 CJGE 排版、表格版式、全角引用和校验 |
+| `scan_plain_text_math` | Word | | 扫描正文和表格中的纯文本公式与符号，写出可审阅的候选文件（建议 TeX、处理方式；策略 `cjge` / `all`） |
+| `prepare_mathtype_markers` | Word | | 按审阅后的候选文件插入 `{{MATH:…}}` 标记并生成清单；简单符号可改为斜体文字加下标 |
+| `render_mathtype_word_document` | Word | | 按清单分批生成 MathType 公式、原生编号和引用（可断点续跑、可后台运行），并默认完成 CJGE 排版、表格版式、行距修正、全角引用和校验 |
+| `get_mathtype_render_status` | Word | | 查询分批或后台渲染任务的进度、日志和结果 |
+| `fix_mathtype_line_spacing` | Word | | 把会裁切行内公式的固定行距段落改为“最小值” |
 | `apply_mathtype_equation_preferences` | Word | | 用 MathType 偏好文件（默认 CJGE）统一全文公式的字号和样式 |
 | `apply_mathtype_repo_layout` | Word | | 把行间公式改成 1×3 无边框表格版式（默认 CJGE 参数） |
 | `validate_mathtype_word_document` | Word | ✓ | 校验公式对象、编号、引用、书签、占位符，并检查公式是否符合 CJGE 格式 |
 | `update_mathtype_word_fields` | Word | | 编辑后刷新全部编号域和引用域 |
+| `apply_cjge_body_format` | Word | | 按 `config/cjge_body_profile.json` 排版正文（不含公式）：页面、标题、正文、列表、图表题、三线表、参考文献 |
+| `report_docx_formatting` | Word | ✓ | 按段落类型汇总字体、字号、行距、缩进、对齐和表格边框；可与配置对比列出不符项 |
 | `render_mathtype_powerpoint_presentation` | PowerPoint | | 把占位文本框替换成居中、CJGE 样式、字号统一的 MathType 公式 |
 | `validate_mathtype_powerpoint_presentation` | PowerPoint | ✓ | 校验对象命名、居中、内嵌 MathML、公式字号和残留占位符 |
 
@@ -154,7 +164,9 @@
 ```
 
 - 正文里写 `由式{{EQREF:r1}}可得`，生成后为“由式（1）可得”。
-- 可选顶层字段：`reference_brackets`（`fullwidth` 默认 / `halfwidth`）、`equation_preferences`（`.eqp` 路径，默认 CJGE，或 `none`）、`display_layout`（`table` 默认 / `tab`）。
+- 可选顶层字段：`reference_brackets`（`fullwidth` 默认 / `halfwidth`）、`equation_preferences`（`.eqp` 路径，默认 CJGE，或 `none`）、`display_layout`（`table` 默认 / `tab`）、`inline_line_spacing`（`at_least` 默认 / `keep`）。
+- 渲染参数：`batch_size`（默认 40）、`resume`（默认 true）、`background`（默认 false，公式超过约 150 个时建议打开）、`allow_unresolved_markers`（部分渲染）。
+- 文档里的公式是手打纯文本时，不必手写清单：先 `scan_plain_text_math`，审阅候选文件，再 `prepare_mathtype_markers`。
 - 联立方程组的 `\\` 后要留一个空格；MathType 的 TeX 导入不支持 `aligned` 和 `\cr`。
 
 ## 静默运行
@@ -246,13 +258,23 @@ pwsh.exe -NoProfile -ExecutionPolicy Bypass -File tests/run-tests.ps1 -IncludeLi
 | 校验报 `equation_format` 错误 | 公式是后来手动添加或修改的，运行 `apply_mathtype_equation_preferences` 后再校验 |
 | 刚打开 DOCX 就报“找不到属性 Content” | 文件放在 `%TEMP%` 下，Word 以受保护视图打开；换到普通文件夹 |
 | 出现“错误！未找到引用源” | `ZEqnNum…` 书签被删了；通过 MathType 重新插入引用 |
+| 公式很多时 Word 报 RPC 错误或渲染超时 | 1.2.0 起自动分批；长任务用 `background: true` 并查询 `get_mathtype_render_status`；失败后用相同参数再调用一次即可续跑 |
+| 正文里分式、上标的上半截被裁掉 | 固定行距小于公式高度；渲染会自动修正，也可单独运行 `fix_mathtype_line_spacing` |
 
 完整列表见 [troubleshooting.md](skills/mathtype-for-word/references/troubleshooting.md)。
 
 ## 本 fork 的改进
 
-相对上游 [felimet/mathtype-for-word](https://github.com/felimet/mathtype-for-word) 1.3.0：
+相对上游 [felimet/mathtype-for-word](https://github.com/felimet/mathtype-for-word) 1.3.0（完整记录见 [CHANGELOG.md](CHANGELOG.md)）：
 
+- **1.2.0 — 大文档、纯文本公式与正文排版**：
+  - 新增 `scan_plain_text_math` / `prepare_mathtype_markers`：自动找出手打的公式和符号并插入标记、生成清单，支持 CJGE 策略（简单符号转斜体文字加下标）；
+  - 渲染改为分批执行，每批独立 Word 进程并存档，支持断点续跑、失败批次拆半重试、后台运行，新增 `get_mathtype_render_status`；
+  - 部分渲染模式 `allow_unresolved_markers`；
+  - 新增 `fix_mathtype_line_spacing`，渲染时自动修正固定行距裁切行内公式；
+  - 新增 `apply_cjge_body_format`（CJGE 正文排版）和 `report_docx_formatting`（精简格式报告）；
+  - 修复：表格单元格内的标记导致渲染死循环；VML 尺寸为 `1in` 时格式检查崩溃；中文路径导致 MCP 报 `charmap` 编码错误；
+  - 改进：桥接日志带时间戳和进度；超时只结束自己启动的 Office 进程；同类校验错误合并为一条。
 - **1.1.0 — CJGE 公式格式**：新增 `apply_mathtype_equation_preferences`（调用 MathType API 按偏好文件重排全部公式，效果同 MathType“设置公式格式”，全程静默）；CJGE 偏好与版式配置；公式后标点；全角引用“式（n）”；校验器新增公式格式检查；PPT 公式同样按 CJGE 样式排版；联立方程组 TeX 写法；清单缺少 `references` 时不再报错。
 - **1.0.0**：
   - 表格式行间公式版式 `apply_mathtype_repo_layout`（原地转换，编号引用保持 MathType 原生）；
@@ -271,6 +293,11 @@ pwsh.exe -NoProfile -ExecutionPolicy Bypass -File tests/run-tests.ps1 -IncludeLi
 | `scripts/mcp_server.py`、`scripts/run-mcp.ps1` | stdio MCP 服务器及启动脚本 |
 | `scripts/mathtype_prefs.py` | 按偏好文件重排公式、公式格式检查（`apply_mathtype_equation_preferences`） |
 | `scripts/repo_layout.py` | 表格式公式版式（`apply_mathtype_repo_layout`） |
+| `scripts/mathtype_scan.py` | 扫描纯文本公式、插入标记（`scan_plain_text_math`、`prepare_mathtype_markers`） |
+| `scripts/mathtype_batch.py` | 分批、可续跑、可后台的渲染任务（`get_mathtype_render_status`） |
+| `scripts/docx_postprocess.py` | 行内公式行距检查与修正（`fix_mathtype_line_spacing`） |
+| `scripts/cjge_body_format.py` | CJGE 正文排版与格式报告（`apply_cjge_body_format`、`report_docx_formatting`） |
+| `config/cjge_body_profile.json` | CJGE 正文排版配置 |
 | `config/cjge_equation_preferences.eqp` | CJGE MathType 偏好（尺寸与样式） |
 | `config/cjge_layout_profile.json` | CJGE 行间公式版式 |
 | `config/repo_format_profile.json` | word-mathtype-mcp 版式（可选） |

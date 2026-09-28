@@ -9,7 +9,9 @@ param(
     [string]$ManifestPath,
     [ValidatePattern('^[0-9a-fA-F]{32}$')]
     [string]$RunToken,
-    [switch]$Overwrite
+    [switch]$Overwrite,
+    # Partial (batched) render: markers that are not in this manifest may remain in the document.
+    [switch]$AllowUnresolvedMarkers
 )
 
 Set-StrictMode -Version Latest
@@ -111,7 +113,7 @@ function Write-Log {
         [Parameter(Mandatory)]
         [string]$Message
     )
-    [Console]::Error.WriteLine("[$Level] $Message")
+    [Console]::Error.WriteLine("[$([DateTime]::Now.ToString('yyyy-MM-ddTHH:mm:ss'))] [$Level] $Message")
 }
 
 function Write-JsonResult {
@@ -510,7 +512,12 @@ function Find-UniqueMarkerRange {
             $find.Forward = $true
             $find.Wrap = 0
             $find.MatchWildcards = $false
+            $floor = $search.Start
             if (-not $find.Execute()) { break }
+            # In table cells Word's Find can return a match at or before the search start again;
+            # stop instead of looping forever.
+            if ($search.Start -lt $floor) { break }
+            if ($matches.Count -gt 0 -and $search.Start -le $matches[-1].start) { break }
             $matches += [ordered]@{ start = $search.Start; end = $search.End }
             $next = $search.End
             $search.SetRange($next, $script:Document.Content.End)
@@ -1263,8 +1270,13 @@ function Invoke-Render {
     try {
         Start-Word -DocumentPath $input
         Write-Log -Level INFO -Message "Opened input DOCX: $input"
+        $total = @($manifest.equations).Count
+        $done = 0
+        $clock = [Diagnostics.Stopwatch]::StartNew()
         foreach ($equation in @($manifest.equations)) {
             $numberField = Convert-Equation -Equation $equation
+            $done++
+            Write-Log -Level INFO -Message ("PROGRESS {0}/{1} id={2} elapsed={3:n1}s" -f $done, $total, $equation.id, $clock.Elapsed.TotalSeconds)
             if ($null -ne $numberField) {
                 $numberFields[[string]$equation.id] = $numberField
                 $script:HeldComObjects.Add($numberField)
@@ -1396,7 +1408,11 @@ function Get-ValidationReport {
 
     $plainText = $script:Document.Content.Text
     if ($plainText -match 'equation reference goes here') { $errors.Add('An unresolved MathType equation-reference placeholder remains.') }
-    if ($plainText -match '\{\{(?:MATH|EQREF):') { $errors.Add('An unresolved equation or reference marker remains.') }
+    $leftoverMarkers = [regex]::Matches($plainText, '\{\{(?:MATH|EQREF):').Count
+    if ($leftoverMarkers -gt 0) {
+        if ($AllowUnresolvedMarkers) { $warnings.Add("$leftoverMarkers marker(s) outside this manifest remain (partial render).") }
+        else { $errors.Add("$leftoverMarkers unresolved equation or reference marker(s) remain.") }
+    }
     if ($plainText -match 'Error! Reference source not found') { $errors.Add('Word reports a missing reference source.') }
     if ($script:Document.OMaths.Count -gt 0) { $errors.Add("Found $($script:Document.OMaths.Count) Word built-in equation object(s); MathType is required.") }
 

@@ -2,7 +2,7 @@
 
 [简体中文](README.md) | [English](README-en.md) | 繁體中文
 
-版本 **1.1.0**。預設公式格式為《岩土工程學報》（CJGE）MathType 規範，完整說明見[簡體中文 README](README.md) 與 [cjge-format.md](skills/mathtype-for-word/references/cjge-format.md)。本專案 fork 自 [felimet/mathtype-for-word](https://github.com/felimet/mathtype-for-word)（MIT），並擴充功能，詳見下方「本 Fork 的改進」。
+版本 **1.2.0**。預設公式格式為《岩土工程學報》（CJGE）MathType 規範，完整說明見[簡體中文 README](README.md) 與 [cjge-format.md](skills/mathtype-for-word/references/cjge-format.md)。本專案 fork 自 [felimet/mathtype-for-word](https://github.com/felimet/mathtype-for-word)（MIT），並擴充功能，詳見下方「本 Fork 的改進」。
 
 可安裝的 AI Agent skill、Codex/Claude plugin 與 MCP server，用於在 Microsoft Word 與 PowerPoint 建立可編輯的 MathType 7 公式；Word 文件另支援 MathType 原生公式編號與動態交叉引用。
 
@@ -18,6 +18,9 @@ AI Agent 編輯 Word、PowerPoint 或 MathType 內容時，必須在背景靜默
 - 插入 `(1)` 等 Word MathType 原生編號及動態引用。
 - 透過隱藏的 Word 轉換文件，在 PowerPoint 建立置中的浮動 MathType 公式。
 - 保留來源 Office 檔案並驗證輸出成品。
+- 掃描正文與表格中手打的純文字公式與符號，審閱後自動插入標記並產生 manifest；CJGE 策略可將簡單符號改為 Times New Roman 斜體文字加 Word 下標。
+- 大型文件分批渲染：每批使用獨立 Word 行程並存檔，可斷點續跑、失敗批次自動拆半重試、可於背景執行並查詢進度。
+- 自動修正固定行距裁切行內公式的問題；提供 CJGE 正文排版與精簡格式報告。
 - 提供 Codex、Claude Code、Claude Desktop 與 ChatGPT Desktop 可使用的跨 Agent skill/plugin；本機 MCP server 可直接供 Codex 與 Claude 使用，ChatGPT 須透過 remote endpoint 或 Secure MCP Tunnel。
 
 ## 系統需求
@@ -158,7 +161,9 @@ Bridge 會保留來源檔，先驗證同層暫存 Office 檔，再以原子方�
 
 ## 本 Fork 的改進
 
-本專案 fork 自 [felimet/mathtype-for-word](https://github.com/felimet/mathtype-for-word)，新增：
+本專案 fork 自 [felimet/mathtype-for-word](https://github.com/felimet/mathtype-for-word)，新增（完整紀錄見 [CHANGELOG.md](CHANGELOG.md)）：
+
+- **1.2.0 — 大型文件、純文字公式與正文排版**：新增 `scan_plain_text_math`、`prepare_mathtype_markers`、`get_mathtype_render_status`、`fix_mathtype_line_spacing`、`apply_cjge_body_format`、`report_docx_formatting`；渲染改為分批、可續跑、可背景執行；部分渲染模式 `allow_unresolved_markers`。修正表格儲存格內標記造成的無限迴圈、VML 尺寸為 `1in` 時格式檢查崩潰、中文路徑造成的 `charmap` 編碼錯誤；逾時只結束本工具啟動的 Office 行程，同類驗證錯誤合併為一條。
 
 - **1.1.0 — CJGE 公式格式**：新增 `apply_mathtype_equation_preferences`（呼叫 MathType API 依偏好檔重排全部公式，等同 MathType「設定公式格式」，全程靜默）、CJGE 偏好與版式設定、公式後標點、全形引用「式（n）」、公式格式驗證、PPT 公式同樣套用 CJGE 樣式。
 
@@ -178,6 +183,8 @@ Bridge 會保留來源檔，先驗證同層暫存 Office 檔，再以原子方�
 | `skills/mathtype-for-word/` | 跨 Agent skill、參考資料及 launcher |
 | `scripts/` | Office automation bridge、MCP server 及封裝程式 |
 | `scripts/repo_layout.py` | 表格式行間公式版式（`apply_mathtype_repo_layout`） |
+| `scripts/mathtype_scan.py`、`scripts/mathtype_batch.py` | 純文字公式掃描與標記、分批可續跑的渲染工作 |
+| `scripts/docx_postprocess.py`、`scripts/cjge_body_format.py` | 行距修正、CJGE 正文排版與格式報告 |
 | `config/repo_format_profile.json` | 表格版式使用的 word-mathtype-mcp 格式設定 |
 | `config/defaults.json` | Word 公式編號預設設定 |
 | `evals/fixtures/` | 真實繁中、英文 DOCX/PPTX 評測輸入 |

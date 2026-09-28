@@ -75,6 +75,12 @@ class McpProtocolTests(unittest.TestCase):
                 "apply_mathtype_repo_layout",
                 "render_mathtype_powerpoint_presentation",
                 "validate_mathtype_powerpoint_presentation",
+                "get_mathtype_render_status",
+                "scan_plain_text_math",
+                "prepare_mathtype_markers",
+                "fix_mathtype_line_spacing",
+                "apply_cjge_body_format",
+                "report_docx_formatting",
             },
         )
         for tool in tools:

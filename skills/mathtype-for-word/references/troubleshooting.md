@@ -21,6 +21,13 @@
 | MathType's *Format Equations* fails in Word with error 53 `MathPage.WLL` after reinstalling Office | `MathPage.wll` is missing from Word's startup folder | Copy `<MathType>\MathPage\64\MathPage.wll` (64-bit Office) into `%APPDATA%\Microsoft\Word\STARTUP` and restart Word. The toolkit itself calls the MathType API directly and does not need it in Word. |
 | `equation_format` errors in validation | Equations are not typeset with the CJGE preferences (edited or added later) | Run `apply_mathtype_equation_preferences`, then validate again. |
 | MCP server emits parse errors | A launcher/log wrote to stdout | Protocol output must be JSON only; keep diagnostics on stderr. |
+| `'charmap' codec can't encode characters` with a Chinese path | Python stdio used the ANSI code page | Fixed in 1.2.0: the server and every helper write UTF-8. |
+| Word fails with RPC errors (`0x800706BA`/`0x800706BE`) after about 200 equations, or one render exceeds the 240 s watchdog | One Word session converted too many equations | Fixed in 1.2.0: render works in batches (`batch_size`) with checkpoints; for long jobs use `background: true` and `get_mathtype_render_status`; after a failure call render again to resume. |
+| A render hangs forever on a marker inside a table cell | Word's `Find` returns the same table match again, so the marker search never ended | Fixed in 1.2.0: the search stops when a match does not move forward. |
+| Equation-format check crashes with `AttributeError` or reports hundreds of size errors | VML sizes written as `1in` (exactly 72 pt), or equations not re-typeset after a batched render | Fixed in 1.2.0: all CSS units are read, repeated errors are summarised; run `apply_mathtype_equation_preferences` if sizes are off. |
+| The top of fractions or superscripts is cut off in body text | Exact line spacing (CJGE 15.6 pt) is lower than the inline equation | Render fixes this automatically; otherwise run `fix_mathtype_line_spacing`. |
+| Render refuses to write because a marker of another batch is left | A partial manifest was rendered without partial mode | Pass `allow_unresolved_markers: true`, or render the complete manifest (batching is automatic). |
+| `get_mathtype_render_status` reports `interrupted` | The background process ended (reboot, killed client) | Call render again with the same arguments and `resume: true`. |
 
 ## Recovery rules
 
@@ -30,6 +37,7 @@
 - Clean only the isolated Word process created by the failed job.
 - Confirm temporary warning registry values were restored.
 - Rerun the smallest fixture before rerunning a large document.
+- For a large document, resume the batched job instead of starting over; the checkpoint holds every finished batch.
 
 ## Fallback boundary
 

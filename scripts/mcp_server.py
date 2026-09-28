@@ -15,7 +15,7 @@ from typing import Any, BinaryIO
 
 
 SERVER_NAME = "mathtype-for-word"
-SERVER_VERSION = "1.1.0"
+SERVER_VERSION = "1.2.0"
 SCRIPT_PATH = Path(__file__).with_name("mathtype-word.ps1")
 DEFAULT_PROTOCOL_VERSION = "2025-06-18"
 
@@ -79,7 +79,9 @@ TOOLS: list[dict[str, Any]] = [
             "italic vectors), 1x3 table display layout with (n) in Times New Roman 10.5 pt, optional "
             "punctuation between equation and number, and full-width references. Manifest options: "
             "equation_preferences (path or 'none'), display_layout ('table' or 'tab'), reference_brackets "
-            "('fullwidth' or 'halfwidth'), per-equation punctuation."
+            "('fullwidth' or 'halfwidth'), inline_line_spacing ('at_least' default: exact-spaced paragraphs "
+            "holding a taller inline equation switch to 'at least'; 'keep'), per-equation punctuation. Rendering "
+            "is batched (batch_size), resumable after a crash, and can run in the background."
         ),
         "inputSchema": {
             "type": "object",
@@ -88,6 +90,35 @@ TOOLS: list[dict[str, Any]] = [
                 "output_path": {"type": "string", "description": "Absolute path for the rendered DOCX."},
                 "manifest_path": {"type": "string", "description": "Absolute path to a schema v1 JSON manifest."},
                 "overwrite": {"type": "boolean", "default": False},
+                "batch_size": {
+                    "type": "integer",
+                    "default": 40,
+                    "description": (
+                        "Equations per isolated Word session (checkpoint after each). Large documents are "
+                        "rendered in chunks so Word does not exhaust itself; 0 renders everything in one session."
+                    ),
+                },
+                "resume": {
+                    "type": "boolean",
+                    "default": True,
+                    "description": "Continue an interrupted or failed job for the same input, output and manifest.",
+                },
+                "background": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": (
+                        "Start the job as a detached process and return at once; poll "
+                        "get_mathtype_render_status. Recommended above about 150 equations."
+                    ),
+                },
+                "allow_unresolved_markers": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": (
+                        "Partial render: {{MATH:...}} markers that are not in this manifest may remain "
+                        "(reported as warnings). Markers of this manifest must still be resolved."
+                    ),
+                },
             },
             "required": ["input_path", "output_path", "manifest_path"],
             "additionalProperties": False,
@@ -119,6 +150,11 @@ TOOLS: list[dict[str, Any]] = [
                         "Also verify that every equation is typeset with this MathType preference file "
                         "(.eqp). Default: config/cjge_equation_preferences.eqp. Pass 'none' to skip."
                     ),
+                },
+                "allow_unresolved_markers": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "Report leftover markers outside the manifest as warnings instead of errors.",
                 },
             },
             "required": ["document_path"],
@@ -218,6 +254,175 @@ TOOLS: list[dict[str, Any]] = [
         },
     },
     {
+        "name": "get_mathtype_render_status",
+        "description": (
+            "Progress of a batched or background render_mathtype_word_document job, identified by its output "
+            "path: status (running, completed, failed, interrupted, none), equations done/total, chunks, the last "
+            "log lines and the final result. Read-only unless cleanup=true removes a completed job's state."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "output_path": {"type": "string", "description": "The output_path passed to the render call."},
+                "cleanup": {"type": "boolean", "default": False},
+            },
+            "required": ["output_path"],
+            "additionalProperties": False,
+        },
+        "annotations": {
+            "title": "MathType Render Job Status",
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        },
+    },
+    {
+        "name": "scan_plain_text_math",
+        "description": (
+            "Find plain-text formulas and math symbols in a DOCX (body and table cells; the reference list is "
+            "skipped) and write a reviewable candidates JSON: text, context, suggested MathType TeX (descriptive "
+            "subscripts upright, units upright, Greek italic) and a proposed action. strategy 'cjge' (default) "
+            "proposes MathType for expressions and italic Times New Roman text with Word subscripts for single "
+            "symbols, as the CJGE guidelines require; 'all' proposes MathType for everything. Review the file "
+            "(edit action to mathtype/italic_text/skip, or tex), then call prepare_mathtype_markers."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "document_path": {"type": "string", "description": "Absolute path to the DOCX."},
+                "candidates_path": {"type": "string", "description": "Absolute path for the candidates JSON."},
+                "strategy": {"type": "string", "enum": ["cjge", "all"], "default": "cjge"},
+                "include_references": {"type": "boolean", "default": False},
+                "index_subscripts": {
+                    "type": "string",
+                    "default": "i,j,k",
+                    "description": "Comma-separated subscript letters that are indices (kept italic).",
+                },
+            },
+            "required": ["document_path", "candidates_path"],
+            "additionalProperties": False,
+        },
+        "annotations": {
+            "title": "Scan Plain-Text Math",
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        },
+    },
+    {
+        "name": "prepare_mathtype_markers",
+        "description": (
+            "Apply a reviewed candidates JSON from scan_plain_text_math to a copy of the DOCX: 'mathtype' "
+            "candidates become unique {{MATH:...}} markers (across runs, in tables) and a schema v1 manifest is "
+            "written; 'italic_text' candidates become Times New Roman italic text with real subscripts; 'skip' is "
+            "untouched. Then call render_mathtype_word_document with the new DOCX and manifest."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "document_path": {"type": "string", "description": "The scanned source DOCX (unchanged since the scan)."},
+                "candidates_path": {"type": "string"},
+                "output_path": {"type": "string", "description": "Absolute path for the marked DOCX."},
+                "manifest_path": {"type": "string", "description": "Absolute path for the generated manifest."},
+                "overwrite": {"type": "boolean", "default": False},
+                "id_prefix": {"type": "string", "default": "eq"},
+                "index_subscripts": {"type": "string", "default": "i,j,k"},
+            },
+            "required": ["document_path", "candidates_path", "output_path", "manifest_path"],
+            "additionalProperties": False,
+        },
+        "annotations": {
+            "title": "Prepare MathType Markers",
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": False,
+            "openWorldHint": False,
+        },
+    },
+    {
+        "name": "fix_mathtype_line_spacing",
+        "description": (
+            "Switch paragraphs (and table-cell paragraphs) whose exact line spacing is lower than an inline "
+            "MathType equation to 'at least' with the same value, so equations are not clipped. The spacing may "
+            "come from the paragraph, its style chain or docDefaults. render_mathtype_word_document does this "
+            "automatically unless the manifest sets inline_line_spacing to 'keep'."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "input_path": {"type": "string"},
+                "output_path": {"type": "string"},
+                "overwrite": {"type": "boolean", "default": False},
+            },
+            "required": ["input_path", "output_path"],
+            "additionalProperties": False,
+        },
+        "annotations": {
+            "title": "Fix Line Spacing Around Inline MathType",
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        },
+    },
+    {
+        "name": "apply_cjge_body_format",
+        "description": (
+            "Format the non-equation parts of a DOCX as a CJGE manuscript from config/cjge_body_profile.json: "
+            "A4 page and margins; title, heading 1-3, body, list, table and reference fonts, sizes, line spacing "
+            "and indents (SimSun/SimHei/KaiTi + Times New Roman); three-line tables. MathType objects, equation "
+            "tables and runs holding equations are left untouched. Writes a new DOCX."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "input_path": {"type": "string"},
+                "output_path": {"type": "string"},
+                "profile_path": {"type": "string", "description": "Optional body profile JSON; default CJGE."},
+                "overwrite": {"type": "boolean", "default": False},
+            },
+            "required": ["input_path", "output_path"],
+            "additionalProperties": False,
+        },
+        "annotations": {
+            "title": "Apply CJGE Body Format",
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        },
+    },
+    {
+        "name": "report_docx_formatting",
+        "description": (
+            "Compact, read-only formatting summary of a DOCX for review instead of dumping raw XML: page size and "
+            "margins; per paragraph role (title, heading levels, body, list, table, reference) the effective East "
+            "Asian/Latin fonts, sizes, bold, line spacing, indents and alignment with counts and examples; table "
+            "border styles; MathType object count. With a profile it also lists deviations from it."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "document_path": {"type": "string"},
+                "profile_path": {
+                    "type": "string",
+                    "description": "Optional body profile to compare against; 'cjge' uses config/cjge_body_profile.json.",
+                },
+            },
+            "required": ["document_path"],
+            "additionalProperties": False,
+        },
+        "annotations": {
+            "title": "Report DOCX Formatting",
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        },
+    },
+    {
         "name": "render_mathtype_powerpoint_presentation",
         "description": (
             "Silently replace marker-only PPTX text boxes with editable, centered Equation.DSMT4 floating OLE "
@@ -270,7 +475,19 @@ TOOLS: list[dict[str, Any]] = [
 
 
 def _log(message: str) -> None:
-    print(f"[{SERVER_NAME}] {message}", file=sys.stderr, flush=True)
+    try:
+        print(f"[{SERVER_NAME}] {message}", file=sys.stderr, flush=True)
+    except (UnicodeError, OSError):
+        pass  # logging must never break a tool call
+
+
+def _utf8_stdio() -> None:
+    """Windows starts Python with an ANSI stdio code page; CJK paths in results and logs need UTF-8."""
+    for stream in (sys.stdin, sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):
+            pass
 
 
 def _powershell_executable() -> str:
@@ -306,8 +523,8 @@ def _restore_warning_preferences(preferences: dict[str, int]) -> None:
         _log(f"could not restore MathType warning preferences after timeout: {exc}")
 
 
-def _extract_word_pid(stderr: str) -> int | None:
-    matches = re.findall(r"\bWORD_PID=(\d+)\b", stderr)
+def _extract_word_pid(stderr: str, key: str = "WORD_PID") -> int | None:
+    matches = re.findall(rf"\b{key}=(\d+)\b", stderr)
     return int(matches[-1]) if matches else None
 
 
@@ -431,6 +648,8 @@ def _invoke_bridge(action: str, arguments: dict[str, Any], timeout: int | None =
             command.extend([switch, str(value)])
     if arguments.get("overwrite"):
         command.append("-Overwrite")
+    if arguments.get("allow_unresolved_markers"):
+        command.append("-AllowUnresolvedMarkers")
 
     creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     effective_timeout = timeout or int(
@@ -457,15 +676,20 @@ def _invoke_bridge(action: str, arguments: dict[str, Any], timeout: int | None =
         if isinstance(stderr, bytes):
             stderr = stderr.decode("utf-8", errors="replace")
         word_process_id = _extract_word_pid(stderr)
+        power_point_process_id = _extract_word_pid(stderr, "POWERPOINT_PID")
         new_word_pids = sorted(_process_pids("WINWORD.EXE") - word_pids_before)
         new_power_point_pids = sorted(_process_pids("POWERPNT.EXE") - power_point_pids_before)
         if word_process_id is None and len(new_word_pids) == 1:
             word_process_id = new_word_pids[0]
-        terminated = [
-            process_id
-            for process_id in [*new_word_pids, *new_power_point_pids]
-            if _terminate_process_pid(process_id)
-        ]
+        if power_point_process_id is None and len(new_power_point_pids) == 1:
+            power_point_process_id = new_power_point_pids[0]
+        # Terminate only the Office processes this bridge started (logged PID, or the single new one);
+        # Word or PowerPoint windows the user opened meanwhile are never touched.
+        targets = [pid for pid in (word_process_id, power_point_process_id) if pid]
+        terminated = [process_id for process_id in targets if _terminate_process_pid(process_id)]
+        untouched = sorted(set(new_word_pids + new_power_point_pids) - set(targets))
+        if untouched:
+            _log(f"left unidentified new Office processes running: {untouched}")
         cleaned = bool(word_process_id and word_process_id in terminated)
         _restore_warning_preferences(preferences)
         cleanup = _cleanup_bridge_output(arguments.get("output_path"), run_token)
@@ -478,6 +702,7 @@ def _invoke_bridge(action: str, arguments: dict[str, Any], timeout: int | None =
             "new_word_pids_observed": new_word_pids,
             "new_powerpoint_pids_observed": new_power_point_pids,
             "isolated_office_processes_terminated": terminated,
+            "unidentified_office_processes_left_running": untouched,
             "temporary_file_cleanup": cleanup,
         }
     if completed.stderr.strip():
@@ -569,6 +794,9 @@ def _check_equation_preferences(document_path: str, preferences: str) -> dict[st
 
 def _validate_word(arguments: dict[str, Any]) -> dict[str, Any]:
     result = _invoke_bridge("validate", arguments)
+    if result.get("counts"):
+        spacing = _run_python_tool("docx_postprocess.py", ["check", str(arguments["document_path"])], "check-line-spacing")
+        result["warnings"] = list(result.get("warnings") or []) + list(spacing.get("warnings") or [])
     preferences = str(arguments.get("equation_preferences") or "")
     if preferences.lower() == "none" or not result.get("counts"):
         return result
@@ -582,21 +810,17 @@ def _validate_word(arguments: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
-def _render_word(arguments: dict[str, Any]) -> dict[str, Any]:
-    result = _invoke_bridge("render", arguments)
-    if not result.get("ok"):
-        return result
-    try:
-        manifest = json.loads(Path(arguments["manifest_path"]).read_text(encoding="utf-8-sig"))
-    except (OSError, json.JSONDecodeError) as exc:
-        result.update(ok=False, error=f"Could not re-read manifest: {exc}")
-        return result
-    output = str(result.get("output_path") or arguments["output_path"])
+def _postprocess_word(
+    output: str, manifest: dict[str, Any], manifest_path: str, allow_unresolved_markers: bool = False
+) -> dict[str, Any]:
+    """Run once after all equations exist: preferences, table layout, line spacing, strict validation."""
     preferences = str(manifest.get("equation_preferences") or "")
     layout = str(manifest.get("display_layout") or "table")
+    spacing = str(manifest.get("inline_line_spacing") or "at_least")
     if layout not in ("table", "tab"):
-        result.update(ok=False, error="display_layout must be 'table' or 'tab'.")
-        return result
+        return {"ok": False, "error": "display_layout must be 'table' or 'tab'."}
+    if spacing not in ("at_least", "keep"):
+        return {"ok": False, "error": "inline_line_spacing must be 'at_least' or 'keep'."}
     steps: dict[str, Any] = {}
     if preferences.lower() != "none":
         step = _apply_equation_preferences(
@@ -604,20 +828,96 @@ def _render_word(arguments: dict[str, Any]) -> dict[str, Any]:
         )
         steps["equation_preferences"] = step
         if not step.get("ok"):
-            result.update(ok=False, error=f"Equation preferences failed: {step.get('error')}", post_processing=steps)
-            return result
+            return {"ok": False, "error": f"Equation preferences failed: {step.get('error')}", "post_processing": steps}
     if layout == "table":
         step = _apply_repo_layout({"input_path": output, "output_path": output, "overwrite": True})
         steps["display_layout"] = step
         if not step.get("ok"):
-            result.update(ok=False, error=f"Table layout failed: {step.get('error')}", post_processing=steps)
-            return result
-    result["post_processing"] = steps
-    result["validation"] = _validate_word(
-        {"document_path": output, "manifest_path": arguments["manifest_path"], "equation_preferences": preferences}
+            return {"ok": False, "error": f"Table layout failed: {step.get('error')}", "post_processing": steps}
+    if spacing == "at_least":
+        step = _run_python_tool("docx_postprocess.py", ["fix", output, output, "--overwrite"], "fix-line-spacing")
+        steps["inline_line_spacing"] = step
+        if not step.get("ok"):
+            return {"ok": False, "error": f"Line-spacing fix failed: {step.get('error')}", "post_processing": steps}
+    validation = _validate_word(
+        {
+            "document_path": output,
+            "manifest_path": manifest_path,
+            "equation_preferences": preferences,
+            "allow_unresolved_markers": allow_unresolved_markers,
+        }
     )
-    result["ok"] = bool(result["validation"].get("ok"))
-    return result
+    return {"ok": bool(validation.get("ok")), "post_processing": steps, "validation": validation}
+
+
+def _render_word(arguments: dict[str, Any]) -> dict[str, Any]:
+    import mathtype_batch
+
+    batch_size = int(arguments.get("batch_size", mathtype_batch.DEFAULT_BATCH_SIZE))
+    common = (
+        str(arguments["input_path"]),
+        str(arguments["output_path"]),
+        str(arguments["manifest_path"]),
+        batch_size,
+        bool(arguments.get("resume", True)),
+        bool(arguments.get("overwrite")),
+        bool(arguments.get("allow_unresolved_markers")),
+    )
+    try:
+        if arguments.get("background"):
+            mathtype_batch.load_manifest(common[2])
+            return mathtype_batch.start_background(*common)
+        return mathtype_batch.render(*common)
+    except Exception as exc:  # report as a tool result, not a protocol error
+        return {"ok": False, "action": "render", "error": f"{type(exc).__name__}: {exc}"}
+
+
+def _scan_math(arguments: dict[str, Any]) -> dict[str, Any]:
+    argv = ["scan", str(arguments["document_path"]), "--candidates", str(arguments["candidates_path"]),
+            "--strategy", str(arguments.get("strategy") or "cjge"),
+            "--index-subscripts", str(arguments.get("index_subscripts") or "i,j,k")]
+    if arguments.get("include_references"):
+        argv.append("--include-references")
+    return _run_python_tool("mathtype_scan.py", argv, "scan")
+
+
+def _prepare_markers(arguments: dict[str, Any]) -> dict[str, Any]:
+    argv = ["prepare", str(arguments["document_path"]), str(arguments["candidates_path"]),
+            str(arguments["output_path"]), str(arguments["manifest_path"]),
+            "--id-prefix", str(arguments.get("id_prefix") or "eq"),
+            "--index-subscripts", str(arguments.get("index_subscripts") or "i,j,k")]
+    if arguments.get("overwrite"):
+        argv.append("--overwrite")
+    return _run_python_tool("mathtype_scan.py", argv, "prepare")
+
+
+def _fix_line_spacing(arguments: dict[str, Any]) -> dict[str, Any]:
+    argv = ["fix", str(arguments["input_path"]), str(arguments["output_path"])]
+    if arguments.get("overwrite"):
+        argv.append("--overwrite")
+    return _run_python_tool("docx_postprocess.py", argv, "fix-line-spacing")
+
+
+def _body_format(arguments: dict[str, Any]) -> dict[str, Any]:
+    argv = ["apply", str(arguments["input_path"]), str(arguments["output_path"])]
+    if arguments.get("profile_path"):
+        argv += ["--profile", str(arguments["profile_path"])]
+    if arguments.get("overwrite"):
+        argv.append("--overwrite")
+    return _run_python_tool("cjge_body_format.py", argv, "apply-cjge-body-format")
+
+
+def _format_report(arguments: dict[str, Any]) -> dict[str, Any]:
+    argv = ["report", str(arguments["document_path"])]
+    if arguments.get("profile_path"):
+        argv += ["--profile", str(arguments["profile_path"])]
+    return _run_python_tool("cjge_body_format.py", argv, "report-docx-formatting")
+
+
+def _render_status(arguments: dict[str, Any]) -> dict[str, Any]:
+    import mathtype_batch
+
+    return mathtype_batch.status(str(arguments["output_path"]), bool(arguments.get("cleanup")))
 
 
 def _call_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
@@ -631,7 +931,17 @@ def _call_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         "render_mathtype_powerpoint_presentation": "render-pptx",
         "validate_mathtype_powerpoint_presentation": "validate-pptx",
     }
-    if name == "apply_mathtype_repo_layout":
+    local = {
+        "get_mathtype_render_status": _render_status,
+        "scan_plain_text_math": _scan_math,
+        "prepare_mathtype_markers": _prepare_markers,
+        "fix_mathtype_line_spacing": _fix_line_spacing,
+        "apply_cjge_body_format": _body_format,
+        "report_docx_formatting": _format_report,
+    }
+    if name in local:
+        result = local[name](arguments)
+    elif name == "apply_mathtype_repo_layout":
         result = _apply_repo_layout(arguments)
     elif name == "apply_mathtype_equation_preferences":
         result = _apply_equation_preferences(arguments)
@@ -703,8 +1013,11 @@ def _handle(message: dict[str, Any]) -> dict[str, Any] | None:
                 "serverInfo": {"name": SERVER_NAME, "version": SERVER_VERSION},
                 "instructions": (
                     "Use the matching Word or PowerPoint probe first. Preserve the source, render from a "
-                    "schema v1 manifest, then validate. DOCX numbering and references must remain "
-                    "MathType-native fields. PPTX equations are editable floating Equation.DSMT4 OLE objects."
+                    "schema v1 manifest, then validate. For documents with plain-text formulas, run "
+                    "scan_plain_text_math, review the candidates, then prepare_mathtype_markers. Large documents "
+                    "render in resumable batches; use background=true and get_mathtype_render_status for long "
+                    "jobs. DOCX numbering and references must remain MathType-native fields. PPTX equations are "
+                    "editable floating Equation.DSMT4 OLE objects."
                 ),
             },
         )
@@ -720,6 +1033,7 @@ def _handle(message: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def main() -> int:
+    _utf8_stdio()
     _log(f"starting {SERVER_VERSION}")
     while True:
         message: dict[str, Any] | None = None

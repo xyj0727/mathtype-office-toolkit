@@ -66,6 +66,8 @@ Long equations: always edit at 10.5 pt. If an equation does not fit the column (
 
 - Simple symbols in prose are typed as text, not MathType objects: Times New Roman italic 10.5 pt, subscripts with Word's subscript format (≈ 7 pt), e.g. “滑距 *S*”, “坐标系 *xyz*”, *W*<sub>t</sub>.
 - Use an inline MathType equation only for real expressions (fractions, radicals, sums …).
+- `scan_plain_text_math` with `strategy: "cjge"` (default) proposes exactly this split and `prepare_mathtype_markers` writes the italic text and Word subscripts. If the user explicitly wants every symbol as a MathType object, use `strategy: "all"` and mention that this departs from the CJGE rule.
+- Paragraphs holding inline MathType need "at least" instead of exact line spacing, or the top of the equation is clipped; render applies this automatically (`inline_line_spacing`).
 
 ## 7. Checklist
 

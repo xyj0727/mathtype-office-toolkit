@@ -1,0 +1,20 @@
+{
+  "name": "CJGE body text (岩土工程学报)",
+  "description": "Non-equation layout of a Chinese Journal of Geotechnical Engineering manuscript: A4, 宋体/黑体/楷体 with Times New Roman, 五号 body text on exactly 15.6 pt lines, three-line tables. Equations are formatted by config/cjge_equation_preferences.eqp and config/cjge_layout_profile.json.",
+  "page": {"width_cm": 21.0, "height_cm": 29.7, "top_cm": 2.5, "bottom_cm": 2.5, "left_cm": 2.0, "right_cm": 2.0},
+  "roles": {
+    "title":     {"east_asia": "黑体", "latin": "Times New Roman", "size_pt": 18,   "bold": false, "align": "center",  "line_rule": "exact", "line_pt": 30,   "first_line_chars": 0, "space_before_pt": 0,  "space_after_pt": 12},
+    "front":     {"east_asia": "楷体", "latin": "Times New Roman", "size_pt": 9,    "bold": null,  "align": "center",  "line_rule": "exact", "line_pt": 15.6, "first_line_chars": 0, "space_before_pt": 0,  "space_after_pt": 0},
+    "heading1":  {"east_asia": "黑体", "latin": "Times New Roman", "size_pt": 12,   "bold": false, "align": "left",    "line_rule": "exact", "line_pt": 20,   "first_line_chars": 0, "space_before_pt": 12, "space_after_pt": 6},
+    "heading2":  {"east_asia": "黑体", "latin": "Times New Roman", "size_pt": 10.5, "bold": true,  "align": "left",    "line_rule": "exact", "line_pt": 15.6, "first_line_chars": 0, "space_before_pt": 6,  "space_after_pt": 3},
+    "heading3":  {"east_asia": "楷体", "latin": "Times New Roman", "size_pt": 10.5, "bold": false, "align": "left",    "line_rule": "exact", "line_pt": 15.6, "first_line_chars": 0, "space_before_pt": 3,  "space_after_pt": 3},
+    "body":      {"east_asia": "宋体", "latin": "Times New Roman", "size_pt": 10.5, "bold": null,  "align": "justify", "line_rule": "exact", "line_pt": 15.6, "first_line_chars": 2, "space_before_pt": 0,  "space_after_pt": 0},
+    "list":      {"east_asia": "宋体", "latin": "Times New Roman", "size_pt": 10.5, "bold": null,  "align": "justify", "line_rule": "exact", "line_pt": 15.6, "first_line_chars": 0, "space_before_pt": 0,  "space_after_pt": 0},
+    "caption":   {"east_asia": "黑体", "latin": "Times New Roman", "size_pt": 9,    "bold": false, "align": "center",  "line_rule": "exact", "line_pt": 13,   "first_line_chars": 0, "space_before_pt": 3,  "space_after_pt": 3},
+    "table":     {"east_asia": "宋体", "latin": "Times New Roman", "size_pt": 9,    "bold": null,  "align": null,      "line_rule": "exact", "line_pt": 13,   "first_line_chars": 0, "space_before_pt": 0,  "space_after_pt": 0},
+    "table_header": {"east_asia": "黑体", "latin": "Times New Roman", "size_pt": 9, "bold": null,  "align": null,      "line_rule": "exact", "line_pt": 13,   "first_line_chars": 0, "space_before_pt": 0,  "space_after_pt": 0},
+    "reference": {"east_asia": "宋体", "latin": "Times New Roman", "size_pt": 9,    "bold": null,  "align": "justify", "line_rule": "exact", "line_pt": 13.5, "first_line_chars": 0, "hanging_pt": 18, "space_before_pt": 0, "space_after_pt": 0}
+  },
+  "tables": {"three_line": true, "outer_rule_pt": 1.5, "header_rule_pt": 0.75, "align": "center"},
+  "remove_text_color": true
+}

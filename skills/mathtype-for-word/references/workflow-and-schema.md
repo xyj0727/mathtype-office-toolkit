@@ -66,6 +66,20 @@ Optional top-level fields (defaults give the CJGE format, see [cjge-format.md](c
 | `reference_brackets` | `"fullwidth"` | `fullwidth` renders 式（n）; `halfwidth` keeps MathType's `(n)` |
 | `equation_preferences` | CJGE `.eqp` | MathType preference file used to re-typeset every equation; `"none"` keeps MathType's current defaults |
 | `display_layout` | `"table"` | `table` = 1x3 borderless table (CJGE layout profile); `tab` = MathType's tab layout |
+| `inline_line_spacing` | `"at_least"` | exactly spaced paragraphs holding a taller inline equation switch to "at least" with the same value; `keep` leaves spacing alone |
+
+Unknown equation fields such as `source_text` (written by `prepare_mathtype_markers`) are ignored.
+
+Render call options (tool arguments, not manifest fields):
+
+| Argument | Default | Meaning |
+|---|---|---|
+| `batch_size` | `40` | equations per isolated Word session; a checkpoint is saved after each batch; `0` = one session |
+| `resume` | `true` | continue a failed or interrupted job for the same input, output and manifest |
+| `background` | `false` | start a detached job and return at once; poll `get_mathtype_render_status` |
+| `allow_unresolved_markers` | `false` | partial render: markers outside this manifest may remain (warnings) |
+
+Numbered equations that are referenced, and all references, are rendered together in the last batch, because MathType places a reference by clicking the live number field.
 - A reference target names an existing numbered equation.
 
 Semantic classes map to schema v1 as follows:
@@ -126,7 +140,13 @@ Expected output structure:
 
 ## Marker preparation
 
-Prefer markers that are visually obvious, unique, and absent from normal prose. Put a display marker alone in its paragraph. An inline marker remains inside the sentence.
+For a document with plain-text formulas, let the tools place the markers:
+
+1. `scan_plain_text_math` writes a candidates file (`mathtype-for-word-candidates/1`): `document_sha256`, `strategy`, and per candidate `id`, `paragraph_index`, `start`, `end`, `text`, `context`, `in_table`, `kind` (`expression` or `symbol`), `tex` and `action` (`mathtype`, `italic_text`, `skip`).
+2. Review and edit `action` and `tex`. Do not change `paragraph_index`, `start`, `end` or `text`.
+3. `prepare_mathtype_markers` refuses a DOCX that changed after the scan, replaces `mathtype` candidates with `{{MATH:eq001}}`… (also across runs and in table cells), writes italic text with Word subscripts for `italic_text`, and writes the manifest (inline, unnumbered). Promote display equations and add numbers and references in the manifest by hand when needed.
+
+For markers you place yourself, prefer markers that are visually obvious, unique, and absent from normal prose. Put a display marker alone in its paragraph. An inline marker remains inside the sentence.
 
 Good:
 
