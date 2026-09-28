@@ -1,2 +1,4 @@
 # Runtime uses only the Python standard library and PowerShell 7+ (pwsh.exe).
 # Microsoft Word, PowerPoint, and MathType 7 are external desktop prerequisites.
+# Optional: apply_mathtype_repo_layout (table display layout) drives Word through pywin32.
+pywin32>=306

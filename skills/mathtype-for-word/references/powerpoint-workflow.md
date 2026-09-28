@@ -30,7 +30,12 @@ Rules:
 - Use unique stable ASCII IDs.
 - Supply one-line MathType-compatible `tex` for silent creation and one complete Presentation MathML `<math>` element for independent validation. Verify that both encode the same operators, scripts, fractions, radicals, accents, and identifiers.
 - Put each marker alone in one top-level text box. Grouped markers and markers embedded in prose are rejected.
-- Set `height_points` between 12 and 200. Omit it to use 32 points.
+- Equation size follows the Word rule — one uniform math size, with the height following the content:
+  - Omit `height_points`. The math size is taken from, in order, the equation's `font_pt`, the manifest-level `equation_font_pt`, the font size of the marker text box, else 24 pt. The natural MathType object (12 pt math) is scaled by `font_pt / 12`.
+  - Each object records `MT_SIZE_MODE`, `MT_NATIVE_HEIGHT_PT` and `MT_FONT_PT` tags; `validate_mathtype_powerpoint_presentation` fails if an equation was resized away from its math size and warns when a deck mixes sizes.
+  - `height_points` (12–200) remains as a legacy fixed-height override. Avoid it: it gives every equation the same height and therefore different glyph sizes.
+- Write each marker in the same font size as the surrounding prose so equations match the text.
+- If PowerPoint is already open, the bridge attaches to it (PowerPoint is single-instance) and closes only its own presentation; it never quits the user's PowerPoint.
 - Keep descriptive prose in separate text boxes above and below the marker.
 
 ## Direct bridge commands

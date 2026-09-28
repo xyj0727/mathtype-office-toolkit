@@ -14,6 +14,10 @@
 | Word remains in Task Manager after a failure | A COM call or MathType dialog blocked | Identify only the Word process started by the failed job before terminating it; never kill all Word sessions. |
 | MCP returns a bridge timeout | A Word/MathType COM macro blocked longer than the watchdog | Check `isolated_word_pid` and `isolated_word_process_terminated`; confirm preferences were restored, then retry one small fixture. The default watchdog is 240 seconds and may be changed with `MATHTYPE_WORD_TIMEOUT_SECONDS`. |
 | Validation reports OMath | Existing or newly inserted built-in Word math is present | Convert the requested equations to MathType; inspect unrelated legacy OMath separately before deletion. |
+| Render hangs at `MTCommand_InsertEqnNum`; hidden Word shows an "Insert Equation Number" dialog | `HKCU\Software\Design Science\DSMT7\WordCommands` values are REG_DWORD (or the key is missing, typically after reinstalling Office). The MathType Word add-in reads `NoEqnNumWarningDlg` / `NoInsertEqnRefDlg` as REG_SZ strings | Run `configure_mathtype_word_defaults` (it now writes REG_SZ `"0"`/`"1"`), or recreate both values as strings. Never change them while a render is running. |
+| Render fails with "property `Content` not found" right after opening the DOCX | The document is under `%TEMP%`, so Word opens it in Protected View | Move the input and output into a normal folder (for example Documents). |
+| Bridge error text is garbled / "invalid JSON" | Localized (e.g. Chinese) error text written in the ANSI code page | Fixed: the bridge now writes UTF-8. |
+| The user's PowerPoint closed after a PPTX job | PowerPoint is single-instance and the bridge attached to it | Fixed: the bridge now closes only its own presentation when PowerPoint was already running. |
 | MCP server emits parse errors | A launcher/log wrote to stdout | Protocol output must be JSON only; keep diagnostics on stderr. |
 
 ## Recovery rules

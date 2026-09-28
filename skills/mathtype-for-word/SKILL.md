@@ -4,7 +4,7 @@ description: Create, replace, number, cross-reference, update, inspect, or valid
 license: MIT
 metadata:
   author: Jia-Ming Zhou (Felimet)
-  version: 1.3.0
+  version: 1.0.0
 ---
 
 # MathType for Word and PowerPoint
@@ -51,9 +51,20 @@ Create real MathType equations in DOCX and PPTX, preserving MathType-native Word
 4. Create a schema v1 JSON manifest. Read [workflow-and-schema.md](references/workflow-and-schema.md) for the exact contract and examples.
 5. For academic prose and mathematical typography, apply [academic-equation-style.md](references/academic-equation-style.md). A display equation must be introduced in the preceding prose and followed by “其中，” plus definitions of every symbol, index, superscript, subscript, unit, and physical meaning that is not already unambiguous. Audit the whole document so variables, vectors, matrices, functions, constants, indices, and units retain one consistent style.
 6. Call `render_mathtype_word_document`. Do not edit the same DOCX concurrently in Word.
-7. Call `validate_mathtype_word_document` with the same manifest. A render is incomplete until validation returns `ok: true`.
-8. For complex fractions, matrices, aligned systems, accents, or nested scripts, open/render the result and visually inspect it. Structural checks cannot prove typographic correctness.
-9. Report the output path, counts, native number/reference mechanism, validation result, and any limitations.
+7. Optional: call `apply_mathtype_repo_layout` when the user wants the table-based display layout (see "Table display layout" below).
+8. Call `validate_mathtype_word_document` with the same manifest. A render is incomplete until validation returns `ok: true`.
+9. For complex fractions, matrices, aligned systems, accents, or nested scripts in a content-authoring task, open/render the result and visually inspect it. If the user has asked for formatting to be verified by tools only, rely on `validate_mathtype_word_document` instead.
+10. Report the output path, counts, native number/reference mechanism, validation result, and any limitations.
+
+## Table display layout (optional)
+
+`apply_mathtype_repo_layout` applies the display-equation format of [word-mathtype-mcp](https://github.com/songsongshuo785-art/word-mathtype-mcp) (profile: `config/repo_format_profile.json`, MIT, see `config/LICENSE-word-mathtype-mcp.txt`):
+
+- Each display equation becomes a 1x3 borderless table: side cells 72 pt (capped at text width / 4), zero cell padding, row height and cell lines "at least" 20 pt, vertically centred, no indents, 0 pt before/after, no tab stops.
+- The equation is centred in the middle cell; the number `(n)` is right-aligned in the right cell in the body font (Times New Roman / SimSun, 12 pt by default).
+- Numbers and references stay MathType-native (`MTPlaceRef`/`SEQ MTEqn`, `GOTOBUTTON`+`REF` to `ZEqnNum…`): the rendered tab-separated paragraph is converted in place with `Range.ConvertToTable`, so nothing is cut, pasted or rebuilt and no clipboard is used.
+- `validate_mathtype_word_document` accepts both the native tab layout and this table layout.
+- Body text, headings, captions, tables and header/footer are outside this skill's scope; format them with a document-formatting tool that skips MathType runs and equation tables, before and after the MathType steps.
 
 ## Mandatory PowerPoint workflow
 
@@ -74,6 +85,7 @@ Use the bundled local MCP server when available:
 - `render_mathtype_word_document`: marker-driven conversion and reference placement.
 - `validate_mathtype_word_document`: read-only structural validation.
 - `update_mathtype_word_fields`: update number/reference fields after moving, adding, or deleting equations.
+- `apply_mathtype_repo_layout`: optional word-mathtype-mcp table layout for display equations, applied in place.
 - `probe_mathtype_powerpoint`: verify the desktop PowerPoint and MathType 7 integration.
 - `render_mathtype_powerpoint_presentation`: replace marker-only text boxes with centered, editable MathType OLE objects.
 - `validate_mathtype_powerpoint_presentation`: verify expected named OLE objects, centering, and resolved markers.

@@ -15,7 +15,7 @@ from typing import Any, BinaryIO
 
 
 SERVER_NAME = "mathtype-for-word"
-SERVER_VERSION = "1.3.0"
+SERVER_VERSION = "1.0.0"
 SCRIPT_PATH = Path(__file__).with_name("mathtype-word.ps1")
 DEFAULT_PROTOCOL_VERSION = "2025-06-18"
 
@@ -143,6 +143,37 @@ TOOLS: list[dict[str, Any]] = [
         },
     },
     {
+        "name": "apply_mathtype_repo_layout",
+        "description": (
+            "Apply the word-mathtype-mcp (songsongshuo785-art) display-equation format to a rendered DOCX: each "
+            "MathType display becomes a 1x3 borderless table (72 pt side cells, equation centred, native MathType "
+            "number right-aligned in the body font, zero padding, 'at least' 20 pt lines). Converts in place, so "
+            "MathType objects, number fields, ZEqnNum bookmarks and references are preserved. Run after "
+            "render_mathtype_word_document, then validate_mathtype_word_document."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "input_path": {"type": "string", "description": "Absolute path to the rendered DOCX."},
+                "output_path": {"type": "string", "description": "Absolute path for the formatted DOCX."},
+                "profile_path": {
+                    "type": "string",
+                    "description": "Optional word-mathtype-mcp JSON profile; defaults to config/repo_format_profile.json.",
+                },
+                "overwrite": {"type": "boolean", "default": False},
+            },
+            "required": ["input_path", "output_path"],
+            "additionalProperties": False,
+        },
+        "annotations": {
+            "title": "Apply word-mathtype-mcp Equation Layout",
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        },
+    },
+    {
         "name": "render_mathtype_powerpoint_presentation",
         "description": (
             "Silently replace marker-only PPTX text boxes with editable, centered Equation.DSMT4 floating OLE "
@@ -225,7 +256,8 @@ def _restore_warning_preferences(preferences: dict[str, int]) -> None:
         path = r"Software\Design Science\DSMT7\WordCommands"
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, path, 0, winreg.KEY_SET_VALUE) as key:
             for name, value in preferences.items():
-                winreg.SetValueEx(key, name, 0, winreg.REG_DWORD, value)
+                # The MathType Word add-in reads these preferences as REG_SZ strings ("0"/"1").
+                winreg.SetValueEx(key, name, 0, winreg.REG_SZ, str(value))
     except (ImportError, OSError, ValueError) as exc:
         _log(f"could not restore MathType warning preferences after timeout: {exc}")
 
@@ -428,6 +460,36 @@ def _invoke_bridge(action: str, arguments: dict[str, Any], timeout: int | None =
     return result
 
 
+def _apply_repo_layout(arguments: dict[str, Any]) -> dict[str, Any]:
+    command = [
+        sys.executable,
+        str(Path(__file__).with_name("repo_layout.py")),
+        str(arguments["input_path"]),
+        str(arguments["output_path"]),
+    ]
+    if arguments.get("profile_path"):
+        command += ["--profile", str(arguments["profile_path"])]
+    if arguments.get("overwrite"):
+        command.append("--overwrite")
+    env = dict(os.environ, PYTHONIOENCODING="utf-8")
+    try:
+        completed = subprocess.run(
+            command, capture_output=True, text=True, encoding="utf-8", timeout=600, env=env, check=False
+        )
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "action": "apply-repo-layout", "error": "Timed out after 600 s."}
+    lines = [line for line in completed.stdout.splitlines() if line.strip()]
+    try:
+        return json.loads(lines[-1])
+    except (IndexError, json.JSONDecodeError):
+        return {
+            "ok": False,
+            "action": "apply-repo-layout",
+            "error": "repo_layout.py returned no JSON result.",
+            "stderr": completed.stderr[-2000:],
+        }
+
+
 def _call_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
     actions = {
         "probe_mathtype_word": "probe",
@@ -439,9 +501,12 @@ def _call_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         "render_mathtype_powerpoint_presentation": "render-pptx",
         "validate_mathtype_powerpoint_presentation": "validate-pptx",
     }
-    if name not in actions:
+    if name == "apply_mathtype_repo_layout":
+        result = _apply_repo_layout(arguments)
+    elif name not in actions:
         raise ValueError(f"Unknown tool: {name}")
-    result = _invoke_bridge(actions[name], arguments)
+    else:
+        result = _invoke_bridge(actions[name], arguments)
     rendered = json.dumps(result, ensure_ascii=False, indent=2)
     return {
         "content": [{"type": "text", "text": rendered}],

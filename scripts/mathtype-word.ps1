@@ -14,6 +14,9 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+# The MCP server decodes bridge output as UTF-8; localized (e.g. Chinese) error text must not use the ANSI code page.
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+$OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 
 $script:PluginRoot = Split-Path -Parent $PSScriptRoot
 $script:PackagedDefaultsPath = Join-Path $script:PluginRoot 'config\defaults.json'
@@ -24,6 +27,7 @@ $script:Word = $null
 $script:Document = $null
 $script:Selection = $null
 $script:PowerPoint = $null
+$script:PowerPointWasRunning = $false
 $script:Presentation = $null
 $script:HeldComObjects = [System.Collections.Generic.List[object]]::new()
 $script:OriginalNumberWarning = $null
@@ -220,6 +224,9 @@ function Start-Word {
 function Start-PowerPoint {
     param([Parameter(Mandatory)][string]$PresentationPath, [switch]$ReadOnly)
     $before = @(Get-Process POWERPNT -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Id)
+    # PowerPoint is single-instance: COM attaches to the user's running PowerPoint if there is one.
+    # In that case only our own presentation may be closed; quitting would close the user's work.
+    $script:PowerPointWasRunning = $before.Count -gt 0
     $script:PowerPoint = New-Object -ComObject PowerPoint.Application
     $script:PowerPoint.DisplayAlerts = 1
     $script:Presentation = $script:PowerPoint.Presentations.Open(
@@ -265,8 +272,18 @@ function Stop-PowerPoint {
         }
     }
     if ($null -ne $script:PowerPoint) {
-        try { $script:PowerPoint.Quit() } catch {
-            Write-Log -Level WARN -Message "Could not quit PowerPoint cleanly: $($_.Exception.Message)"
+        $attached = $script:PowerPointWasRunning
+        if (-not $attached) {
+            # Also never quit if the user opened presentations of their own while we were running.
+            try { $attached = [int]$script:PowerPoint.Presentations.Count -gt 0 } catch {}
+        }
+        if ($attached) {
+            Write-Log -Level INFO -Message 'PowerPoint was already in use; leaving it running and closing only the bridge presentation.'
+        }
+        else {
+            try { $script:PowerPoint.Quit() } catch {
+                Write-Log -Level WARN -Message "Could not quit PowerPoint cleanly: $($_.Exception.Message)"
+            }
         }
     }
     Release-ComObject $script:Presentation
@@ -365,13 +382,44 @@ function Assert-PresentationManifest {
         if ([string]$equation.mathml -notmatch '^\s*<math\b' -or [string]$equation.mathml -notmatch '</math>\s*$') {
             throw "Presentation equation '$($equation.id)' mathml must contain one complete MathML math element."
         }
-        if ($null -ne $equation.height_points) {
+        if ($null -ne $equation.PSObject.Properties['height_points'] -and $null -ne $equation.height_points) {
             $height = [double]$equation.height_points
             if ($height -lt 12 -or $height -gt 200) {
                 throw "Presentation equation '$($equation.id)' height_points must be between 12 and 200."
             }
         }
+        if ($null -ne $equation.PSObject.Properties['font_pt'] -and $null -ne $equation.font_pt) {
+            $fontPt = [double]$equation.font_pt
+            if ($fontPt -lt 6 -or $fontPt -gt 200) {
+                throw "Presentation equation '$($equation.id)' font_pt must be between 6 and 200."
+            }
+        }
     }
+    if ($null -ne $Manifest.PSObject.Properties['equation_font_pt'] -and $null -ne $Manifest.equation_font_pt) {
+        $deckFont = [double]$Manifest.equation_font_pt
+        if ($deckFont -lt 6 -or $deckFont -gt 200) { throw 'equation_font_pt must be between 6 and 200.' }
+    }
+}
+
+# MathType's default "Full" size in the Word template: a natural-size object corresponds to 12 pt math,
+# the same size the Word workflow uses for body-text equations.
+$script:MathTypeNativeFontPoints = 12.0
+
+function Get-PresentationEquationFontPoints {
+    param([Parameter(Mandatory)]$Equation, [Parameter(Mandatory)]$Manifest, $MarkerShape)
+    if ($null -ne $Equation.PSObject.Properties['font_pt'] -and $null -ne $Equation.font_pt) { return [double]$Equation.font_pt }
+    if ($null -ne $Manifest.PSObject.Properties['equation_font_pt'] -and $null -ne $Manifest.equation_font_pt) {
+        return [double]$Manifest.equation_font_pt
+    }
+    if ($null -ne $MarkerShape) {
+        # Same rule as Word: the equation takes the size of the text it replaces (the marker's font size).
+        try {
+            $size = [double]$MarkerShape.TextFrame.TextRange.Characters(1, 1).Font.Size
+            if ($size -ge 6 -and $size -le 200) { return $size }
+        }
+        catch {}
+    }
+    return 24.0
 }
 
 function Find-UniqueMarkerRange {
@@ -662,9 +710,10 @@ function Add-MathTypeEquationToSlide {
     param(
         [Parameter(Mandatory)]$Equation,
         [Parameter(Mandatory)]$Slide,
-        [Parameter(Mandatory)][double]$Top
+        [Parameter(Mandatory)][double]$Top,
+        [double]$FontPoints = 0
     )
-    $height = if ($null -ne $Equation.height_points) { [double]$Equation.height_points } else { 32.0 }
+    $fixedHeight = if ($null -ne $Equation.PSObject.Properties['height_points'] -and $null -ne $Equation.height_points) { [double]$Equation.height_points } else { $null }
     $shape = $null
     $shapeRange = $null
     $wordShape = $null
@@ -681,6 +730,7 @@ function Add-MathTypeEquationToSlide {
             throw 'Hidden Word conversion did not create exactly one MathType object.'
         }
         $wordShape = $script:Document.InlineShapes.Item($script:Document.InlineShapes.Count)
+        $nativeHeight = [double]$wordShape.Height
         $wordShape.Range.Copy()
         $shapeRange = $Slide.Shapes.Paste()
         for ($index = 1; $index -le $shapeRange.Count; $index++) {
@@ -709,11 +759,22 @@ function Add-MathTypeEquationToSlide {
             throw "MathML text signature mismatch: expected '$expectedSignature', got '$actualSignature'."
         }
         $shape.LockAspectRatio = -1
-        $shape.Height = $height
+        if ($null -ne $fixedHeight) {
+            $shape.Height = $fixedHeight
+            $sizeMode = 'fixed_height'
+        }
+        else {
+            # Uniform math size, like Word: scale the natural object so its math is $FontPoints pt.
+            $shape.Height = $nativeHeight * ($FontPoints / $script:MathTypeNativeFontPoints)
+            $sizeMode = 'font_pt'
+        }
         $shape.Left = ($script:Presentation.PageSetup.SlideWidth - $shape.Width) / 2
         $shape.Top = $Top
         $shape.Name = "MathType_$($Equation.id)"
         $shape.AlternativeText = "MathType equation: $($Equation.id)"
+        $shape.Tags.Add('MT_SIZE_MODE', $sizeMode)
+        $shape.Tags.Add('MT_NATIVE_HEIGHT_PT', ([string]([Math]::Round($nativeHeight, 3))))
+        $shape.Tags.Add('MT_FONT_PT', ([string]$FontPoints))
         return $shape
     }
     catch {
@@ -772,7 +833,8 @@ function Invoke-RenderPptx {
         foreach ($equation in @($manifest.equations)) {
             $marker = Find-PresentationMarkerShape -Marker ([string]$equation.marker)
             $top = [double]$marker.shape.Top
-            $pastedShape = Add-MathTypeEquationToSlide -Equation $equation -Slide $marker.slide -Top $top
+            $fontPoints = Get-PresentationEquationFontPoints -Equation $equation -Manifest $manifest -MarkerShape $marker.shape
+            $pastedShape = Add-MathTypeEquationToSlide -Equation $equation -Slide $marker.slide -Top $top -FontPoints $fontPoints
             $marker.shape.Delete()
             Release-ComObject $pastedShape
             Release-ComObject $marker.shape
@@ -799,6 +861,9 @@ function Invoke-RenderPptx {
 function Get-PresentationValidationReport {
     param([Parameter(Mandatory)][string]$PresentationPath, [Parameter(Mandatory)]$Manifest)
     $errors = [System.Collections.Generic.List[string]]::new()
+    $warnings = [System.Collections.Generic.List[string]]::new()
+    $warnings.Add('PowerPoint equations are floating OLE objects; MathType-native Word numbering and references do not exist in PPTX.')
+    $fontSizes = @()
     $mathTypeObjects = 0
     $verifiedMathML = 0
     $namedObjects = @()
@@ -819,6 +884,19 @@ function Get-PresentationValidationReport {
                 $namedObjects += [string]$shape.Name
                 $centerError = [Math]::Abs(($shape.Left + ($shape.Width / 2)) - ($slideWidth / 2))
                 if ($centerError -gt 1.0) { $errors.Add("$($shape.Name) on slide $slideIndex is not horizontally centered.") }
+                $sizeMode = [string]$shape.Tags.Item('MT_SIZE_MODE')
+                if ($sizeMode -eq 'font_pt') {
+                    $nativeHeight = [double]$shape.Tags.Item('MT_NATIVE_HEIGHT_PT')
+                    $fontPt = [double]$shape.Tags.Item('MT_FONT_PT')
+                    $expectedHeight = $nativeHeight * ($fontPt / $script:MathTypeNativeFontPoints)
+                    if ([Math]::Abs([double]$shape.Height - $expectedHeight) -gt 0.5) {
+                        $errors.Add("$($shape.Name) was resized: height $([Math]::Round($shape.Height, 2)) pt does not match its $fontPt pt math size ($([Math]::Round($expectedHeight, 2)) pt).")
+                    }
+                    $fontSizes += $fontPt
+                }
+                elseif ($sizeMode -ne 'fixed_height') {
+                    $warnings.Add("$($shape.Name) has no MathType size tags; its math size cannot be verified.")
+                }
                 if ($expectedSignatures.ContainsKey([string]$shape.Name)) {
                     $oleObject = $null
                     try {
@@ -858,15 +936,20 @@ function Get-PresentationValidationReport {
         $errors.Add("Expected at least $(@($Manifest.equations).Count) MathType OLE objects; found $mathTypeObjects.")
     }
     if ($unresolvedMarkers.Count -gt 0) { $errors.Add('One or more PowerPoint equation markers remain unresolved.') }
+    $distinctSizes = @($fontSizes | Sort-Object -Unique)
+    if ($distinctSizes.Count -gt 1) {
+        $warnings.Add("Equations use different math sizes ($($distinctSizes -join ', ') pt); Word uses one size throughout.")
+    }
     return [ordered]@{
         ok = $errors.Count -eq 0
         action = 'validate-pptx'
         presentation_path = $PresentationPath
         counts = [ordered]@{ mathtype_objects = $mathTypeObjects; mathml_verified = $verifiedMathML }
         named_objects = $namedObjects
+        equation_font_pt = $distinctSizes
         unresolved_markers = $unresolvedMarkers
         errors = @($errors)
-        warnings = @('PowerPoint equations are floating OLE objects; MathType-native Word numbering and references do not exist in PPTX.')
+        warnings = @($warnings)
     }
 }
 
@@ -907,6 +990,8 @@ function Invoke-Probe {
     $powerPointAddInLoaded = $false
     if ($PowerPointRequired) {
         try {
+            # PowerPoint is single-instance: never quit an instance the user already had open.
+            $script:PowerPointWasRunning = @(Get-Process POWERPNT -ErrorAction SilentlyContinue).Count -gt 0
             $script:PowerPoint = New-Object -ComObject PowerPoint.Application
             $powerPointVersion = $script:PowerPoint.Version
             foreach ($addIn in @($script:PowerPoint.AddIns)) {
@@ -964,8 +1049,8 @@ function Invoke-ConfigureDefaults {
     if (-not (Test-Path -LiteralPath $script:WordCommandsKey)) {
         New-Item -Path $script:WordCommandsKey -Force | Out-Null
     }
-    New-ItemProperty -LiteralPath $script:WordCommandsKey -Name NoEqnNumWarningDlg -PropertyType DWord -Value 0 -Force | Out-Null
-    New-ItemProperty -LiteralPath $script:WordCommandsKey -Name NoInsertEqnRefDlg -PropertyType DWord -Value 1 -Force | Out-Null
+    New-ItemProperty -LiteralPath $script:WordCommandsKey -Name NoEqnNumWarningDlg -PropertyType String -Value '0' -Force | Out-Null
+    New-ItemProperty -LiteralPath $script:WordCommandsKey -Name NoInsertEqnRefDlg -PropertyType String -Value '1' -Force | Out-Null
     Write-JsonResult ([ordered]@{
         ok = $true
         action = 'configure-defaults'
@@ -1048,18 +1133,43 @@ function Get-ValidationReport {
             if ($code -notmatch '\(' -or $code -notmatch '\)') { $errors.Add("Number field $index is not enclosed in parentheses.") }
             if ($code -match '\([.:-]') { $errors.Add("Number field $index contains a residual separator after the opening parenthesis.") }
             $numberParagraph = $field.Code.Paragraphs.Item(1)
-            $tabCount = ([regex]::Matches($numberParagraph.Range.Text, "`t")).Count
-            if ($tabCount -lt 2) { $errors.Add("Numbered display containing field $index lacks the right-alignment tab before the equation number.") }
-            $hasCenterTab = $false
-            $hasRightTab = $false
-            for ($tabIndex = 1; $tabIndex -le $numberParagraph.TabStops.Count; $tabIndex++) {
-                $tabStop = $numberParagraph.TabStops.Item($tabIndex)
-                if ($tabStop.Alignment -eq 1) { $hasCenterTab = $true }
-                if ($tabStop.Alignment -eq 2) { $hasRightTab = $true }
-                Release-ComObject $tabStop
+            if ($numberParagraph.Range.Information(12)) {
+                # word-mathtype-mcp layout: 1x3 borderless table, equation centred in cell 2, number right-aligned in cell 3.
+                $cell = $numberParagraph.Range.Cells.Item(1)
+                $row = $cell.Row
+                if ($row.Cells.Count -ne 3 -or $cell.ColumnIndex -ne 3) {
+                    $errors.Add("Numbered display containing field $index is in a table but not in the third cell of a 1x3 equation row.")
+                }
+                else {
+                    $equationCell = $row.Cells.Item(2)
+                    $equationObjects = 0
+                    for ($shapeIndex = 1; $shapeIndex -le $equationCell.Range.InlineShapes.Count; $shapeIndex++) {
+                        $cellShape = $equationCell.Range.InlineShapes.Item($shapeIndex)
+                        try { if ($cellShape.OLEFormat.ProgID -eq 'Equation.DSMT4') { $equationObjects++ } } catch {}
+                        Release-ComObject $cellShape
+                    }
+                    if ($equationObjects -ne 1) { $errors.Add("Table equation row for field $index does not hold exactly one Equation.DSMT4 object in its middle cell.") }
+                    if ($equationCell.Range.ParagraphFormat.Alignment -ne 1) { $errors.Add("Table equation row for field $index does not centre the equation.") }
+                    if ($numberParagraph.Alignment -ne 2) { $errors.Add("Table equation row for field $index does not right-align the equation number.") }
+                    Release-ComObject $equationCell
+                }
+                Release-ComObject $row
+                Release-ComObject $cell
             }
-            if (-not $hasCenterTab -or -not $hasRightTab) {
-                $errors.Add("Numbered display containing field $index lacks MathType center/right tab stops.")
+            else {
+                $tabCount = ([regex]::Matches($numberParagraph.Range.Text, "`t")).Count
+                if ($tabCount -lt 2) { $errors.Add("Numbered display containing field $index lacks the right-alignment tab before the equation number.") }
+                $hasCenterTab = $false
+                $hasRightTab = $false
+                for ($tabIndex = 1; $tabIndex -le $numberParagraph.TabStops.Count; $tabIndex++) {
+                    $tabStop = $numberParagraph.TabStops.Item($tabIndex)
+                    if ($tabStop.Alignment -eq 1) { $hasCenterTab = $true }
+                    if ($tabStop.Alignment -eq 2) { $hasRightTab = $true }
+                    Release-ComObject $tabStop
+                }
+                if (-not $hasCenterTab -or -not $hasRightTab) {
+                    $errors.Add("Numbered display containing field $index lacks MathType center/right tab stops.")
+                }
             }
             Release-ComObject $numberParagraph
         }

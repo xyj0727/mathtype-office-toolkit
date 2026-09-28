@@ -1,6 +1,8 @@
-# MathType for Word 與 PowerPoint
+# MathType Office Toolkit
 
-[English](README.md)
+[English](README.md) | [简体中文](README-zhCN.md)
+
+版本 **1.0.0**。本專案 fork 自 [felimet/mathtype-for-word](https://github.com/felimet/mathtype-for-word)（MIT），並擴充功能，詳見下方「本 Fork 的改進」。
 
 可安裝的 AI Agent skill、Codex/Claude plugin 與 MCP server，用於在 Microsoft Word 與 PowerPoint 建立可編輯的 MathType 7 公式；Word 文件另支援 MathType 原生公式編號與動態交叉引用。
 
@@ -54,7 +56,7 @@ pwsh.exe -NoProfile -ExecutionPolicy Bypass -File scripts/mathtype-word.ps1 -Act
 若要在 Claude Code、Claude Desktop、Codex 或 ChatGPT Desktop 使用本工具，貼上以下 prompt，Agent 會依目前環境完成設定：
 
 ```text
-從 https://github.com/felimet/mathtype-for-word 安裝或升級 MathType for Word and PowerPoint toolkit。偵測我目前可用的終端機，並使用 PowerShell 7、Windows 上的 Bash，包括 Git Bash，或 CMD。不可在 Windows PowerShell 5.1 執行 Office bridge；若目前為 5.1，切換至 Git Bash 或 CMD，再呼叫 Windows pwsh.exe。從 WSL Bash 執行時，呼叫 Windows pwsh.exe，不使用 Linux pwsh。若沒有支援的終端機或找不到 pwsh.exe，停止執行並提示我依 https://learn.microsoft.com/zh-tw/powershell/scripting/install/microsoft-update-faq?view=powershell-7.6 安裝 PowerShell 7。確認桌面版 MathType for Windows ProductVersion 7.11.1.462，以及 Microsoft Word 與 PowerPoint 桌面版均可使用；安裝可攜式 skill、註冊本機 stdio MCP server、執行兩項 MathType probe 與 repository 測試、保留既有 Agent 設定，並列出所有異動檔案。輸出未包含可編輯 Equation.DSMT4 物件或 validation 未回傳 ok: true 時，不得宣稱完成。
+從 https://github.com/xyj0727/mathtype-office-toolkit 安裝或升級 MathType for Word and PowerPoint toolkit。偵測我目前可用的終端機，並使用 PowerShell 7、Windows 上的 Bash，包括 Git Bash，或 CMD。不可在 Windows PowerShell 5.1 執行 Office bridge；若目前為 5.1，切換至 Git Bash 或 CMD，再呼叫 Windows pwsh.exe。從 WSL Bash 執行時，呼叫 Windows pwsh.exe，不使用 Linux pwsh。若沒有支援的終端機或找不到 pwsh.exe，停止執行並提示我依 https://learn.microsoft.com/zh-tw/powershell/scripting/install/microsoft-update-faq?view=powershell-7.6 安裝 PowerShell 7。確認桌面版 MathType for Windows ProductVersion 7.11.1.462，以及 Microsoft Word 與 PowerPoint 桌面版均可使用；安裝可攜式 skill、註冊本機 stdio MCP server、執行兩項 MathType probe 與 repository 測試、保留既有 Agent 設定，並列出所有異動檔案。輸出未包含可編輯 Equation.DSMT4 物件或 validation 未回傳 ok: true 時，不得宣稱完成。
 ```
 
 再告訴 Agent 要處理的 DOCX 或 PPTX，以及需要建立的公式。
@@ -154,12 +156,27 @@ pwsh.exe -NoProfile -ExecutionPolicy Bypass -File tests/run-tests.ps1 -IncludeLi
 
 Bridge 會保留來源檔，先驗證同層暫存 Office 檔，再以原子方式發布；除非明確指定 `-Overwrite`，否則不覆寫既有輸出。所有可處理的結束路徑都會刪除帶有本次執行 token 的暫存 sibling，並只掃除命名格式完全相符且超過 24 小時的舊檔；MCP 逾時也會使用相同 token 要求清理。
 
+## 本 Fork 的改進
+
+本專案 fork 自 [felimet/mathtype-for-word](https://github.com/felimet/mathtype-for-word)，新增：
+
+- **表格式行間公式版式（選用）**：新增 MCP 工具 `apply_mathtype_repo_layout`，採用 [word-mathtype-mcp](https://github.com/songsongshuo785-art/word-mathtype-mcp) 的版式——1×3 無框線表格，公式置中、編號 `(n)` 靠右（兩側欄 72 pt、儲存格內距 0、行距「最小值 20 pt」、編號為 Times New Roman／宋體 12 pt）。原段落就地轉為表格，因此編號與引用仍是 MathType 原生欄位、可自動更新。`validate_mathtype_word_document` 同時接受定位點版式與表格版式。
+- **PowerPoint 公式字號一致**：依統一的數學字號（`font_pt`、`equation_font_pt` 或佔位文字的字號）縮放，不再固定 32 pt 高度，簡單公式與分式的字形大小一致，與 Word 相同。驗證器會檢查公式是否被拉伸變形。
+- **不再關閉使用者的 PowerPoint**：PowerPoint 為單一執行個體；若已開啟，渲染、驗證與 `probe_mathtype_powerpoint` 檢查都只關閉自己開的簡報，不會結束 PowerPoint。
+- **重裝與在地化修正**：
+  - MathType 警告偏好以 REG_SZ 字串寫入。MathType 的 Word 增益集以字串讀取；原本的 DWORD 會讓重裝 Office 後渲染卡在隱藏的「Insert Equation Number」對話框。
+  - 簡報 manifest 省略 `height_points` 時不再報錯。
+  - bridge 以 UTF-8 輸出，中文錯誤訊息不會再破壞 MCP 的 JSON。
+- 補充文件：位於 `%TEMP%` 的文件會以受保護的檢視開啟，無法渲染。
+
 ## Repository 結構
 
 | 路徑 | 用途 |
 |---|---|
 | `skills/mathtype-for-word/` | 跨 Agent skill、參考資料及 launcher |
 | `scripts/` | Office automation bridge、MCP server 及封裝程式 |
+| `scripts/repo_layout.py` | 表格式行間公式版式（`apply_mathtype_repo_layout`） |
+| `config/repo_format_profile.json` | 表格版式使用的 word-mathtype-mcp 格式設定 |
 | `config/defaults.json` | Word 公式編號預設設定 |
 | `evals/fixtures/` | 真實繁中、英文 DOCX/PPTX 評測輸入 |
 | `tests/` | 靜態、MCP、Office 整合、視覺與封裝測試 |
@@ -174,8 +191,10 @@ python scripts/package_plugin.py
 
 ## 問題回報與交流
 
-若有任何問題，請至 [GitHub Issues](https://github.com/felimet/mathtype-for-word/issues) 提出並交流。
+若有任何問題，請至 [GitHub Issues](https://github.com/xyj0727/mathtype-office-toolkit/issues) 提出並交流。
 
 ## 授權
 
 [MIT](LICENSE)
+
+`config/repo_format_profile.json` 的格式設定取自 [word-mathtype-mcp](https://github.com/songsongshuo785-art/word-mathtype-mcp)（MIT，Copyright (c) 2026 Songchongyang），授權全文見 `config/LICENSE-word-mathtype-mcp.txt`。

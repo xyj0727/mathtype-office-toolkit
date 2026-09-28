@@ -71,6 +71,7 @@ class McpProtocolTests(unittest.TestCase):
                 "render_mathtype_word_document",
                 "validate_mathtype_word_document",
                 "update_mathtype_word_fields",
+                "apply_mathtype_repo_layout",
                 "render_mathtype_powerpoint_presentation",
                 "validate_mathtype_powerpoint_presentation",
             },
