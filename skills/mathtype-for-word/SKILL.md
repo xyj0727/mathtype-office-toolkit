@@ -57,7 +57,7 @@ Create real MathType equations in DOCX and PPTX, preserving MathType-native Word
 7. Call `render_mathtype_word_document`. Do not edit the same DOCX concurrently in Word. It renders the equations in batches of `batch_size` (default 40) in fresh isolated Word sessions with a checkpoint after each batch, then once (unless the manifest opts out) re-typesets them with the CJGE preferences, applies the CJGE table display layout, sets "at least" spacing where an inline equation would be clipped, writes references as 式（n）, and validates. Above about 150 equations pass `background: true` and poll `get_mathtype_render_status` with the same `output_path` instead of waiting on one long call. If a render fails, times out or is interrupted, call it again with the same input, output and manifest: it resumes from the last checkpoint. Use `allow_unresolved_markers` only for an intentional partial render.
 8. If equations were added or edited later, call `apply_mathtype_equation_preferences`, `apply_mathtype_repo_layout` and `fix_mathtype_line_spacing` on the result, then `update_mathtype_word_fields`.
 9. Call `validate_mathtype_word_document` with the same manifest. It also checks that every equation matches the CJGE preferences (`equation_format`, repeated problems summarised in one line) and warns about inline equations clipped by exact line spacing. A render is incomplete until validation returns `ok: true`.
-10. For complex fractions, matrices, aligned systems, accents, or nested scripts in a content-authoring task, open/render the result and visually inspect it. In a formatting task never inspect visually: rely on `validate_mathtype_word_document`.
+10. Check every equation twice, in every task (content-authoring and formatting alike): first `validate_mathtype_word_document` (step 9, must return `ok: true`), then render the result and visually inspect each equation. The work is complete only when both checks pass.
 11. Report the output path, counts, native number/reference mechanism, validation result, and any limitations.
 
 ## Default format: CJGE
@@ -84,7 +84,7 @@ Full rules and checklist: [cjge-format.md](references/cjge-format.md).
 3. Put each `{{MATH:id}}` marker alone in a top-level text box. PowerPoint does not support inline external objects.
 4. Create a presentation schema v1 manifest, apply [academic-equation-style.md](references/academic-equation-style.md), and read [powerpoint-workflow.md](references/powerpoint-workflow.md).
 5. Call `render_mathtype_powerpoint_presentation`, then `validate_mathtype_powerpoint_presentation` with the same manifest.
-6. Equations are re-typeset with the same CJGE preferences as Word and sized to one uniform math size (the marker text size by default). In a content task, render every output slide and inspect it for overlap; in a formatting task rely on `validate_mathtype_powerpoint_presentation` only.
+6. Equations are re-typeset with the same CJGE preferences as Word and sized to one uniform math size (the marker text size by default). In every task, check twice: first `validate_mathtype_powerpoint_presentation`, then render every output slide and visually inspect it (equations and overlap). Both checks must pass.
 7. Report that the result contains editable floating MathType OLE objects and that Word-style dynamic numbering/references are unavailable in PPTX.
 
 ## MCP tools
@@ -170,7 +170,7 @@ The bridge temporarily suppresses blocking dialogs during headless automation, r
 
 ## Advanced ribbon operations
 
-The screenshot-level workflow also includes symbol palettes, equation browsing, preferences, whole-document formatting, conversion, export, MathPage, and help. Read [advanced-ribbon-operations.md](references/advanced-ribbon-operations.md) before using any of them. The MCP surface intentionally automates only the deterministic subset; interactive or whole-document commands require explicit scope, a preserved source, and visual review.
+The screenshot-level workflow also includes symbol palettes, equation browsing, preferences, whole-document formatting, conversion, export, MathPage, and help. Read [advanced-ribbon-operations.md](references/advanced-ribbon-operations.md) before using any of them. The MCP surface intentionally automates only the deterministic subset; interactive or whole-document commands require explicit scope, a preserved source, and both checks afterwards: the matching `validate_mathtype_*` tool and visual review.
 
 ## PowerPoint boundary
 
