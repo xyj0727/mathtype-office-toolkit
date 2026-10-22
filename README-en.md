@@ -6,7 +6,7 @@ An MCP server and a cross-agent skill that let AI agents (Claude Code, Claude De
 
 **Default equation format: CJGE** (*Chinese Journal of Geotechnical Engineering*, 《岩土工程学报》): 10.5 pt, Times New Roman italic variables, Symbol italic lower-case Greek, bold italic vectors/matrices, right-aligned numbers and references written 式（n）.
 
-Version **1.2.0**. Forked from [felimet/mathtype-for-word](https://github.com/felimet/mathtype-for-word) (MIT) and extended; see [What this fork adds](#what-this-fork-adds).
+Version **1.2.1**. Forked from [felimet/mathtype-for-word](https://github.com/felimet/mathtype-for-word) (MIT) and extended; see [What this fork adds](#what-this-fork-adds).
 
 ---
 
@@ -267,6 +267,7 @@ Full table: [troubleshooting.md](skills/mathtype-for-word/references/troubleshoo
 
 Compared with upstream [felimet/mathtype-for-word](https://github.com/felimet/mathtype-for-word) 1.3.0 (full history in [CHANGELOG.md](CHANGELOG.md)):
 
+- **1.2.1 — two-pass equation check**: the skill now checks every equation twice in every task — `validate_mathtype_word_document` / `validate_mathtype_powerpoint_presentation` first, then a visual review of the rendered result; both must pass (formatting tasks previously forbade visual review).
 - **1.2.0 — large documents, plain-text formulas, body formatting**: `scan_plain_text_math` / `prepare_mathtype_markers` (detect typed formulas and symbols, insert markers, write the manifest; CJGE strategy for italic text symbols); batched rendering in isolated Word sessions with checkpoints, resume, split-and-retry and background jobs (`get_mathtype_render_status`); partial renders (`allow_unresolved_markers`); `fix_mathtype_line_spacing`, applied automatically; `apply_cjge_body_format` and `report_docx_formatting`. Fixes: endless marker search in table cells; format check crash on `1in` VML sizes; `charmap` errors with Chinese paths. Improvements: timestamped progress logs, the watchdog terminates only its own Office process, repeated validation errors are summarised.
 - **1.1.0 — CJGE equation format**: `apply_mathtype_equation_preferences` (MathType API re-typesetting, silent, stored in the document), CJGE preference and layout profiles, punctuation between equation and number, 式（n） references, equation-format validation, CJGE styling in PowerPoint, simultaneous-equation TeX pattern, manifests without `references` accepted.
 

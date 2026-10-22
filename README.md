@@ -6,7 +6,7 @@
 
 **默认公式格式为《岩土工程学报》（CJGE）MathType 规范**：五号 10.5 磅、变量 Times New Roman 斜体、小写希腊字母 Symbol 斜体、矢量矩阵黑斜体、编号右对齐、正文引用写作“式（n）”。
 
-版本 **1.2.0**。基于 [felimet/mathtype-for-word](https://github.com/felimet/mathtype-for-word)（MIT）fork 并扩展，改进内容见[本 fork 的改进](#本-fork-的改进)。
+版本 **1.2.1**。基于 [felimet/mathtype-for-word](https://github.com/felimet/mathtype-for-word)（MIT）fork 并扩展，改进内容见[本 fork 的改进](#本-fork-的改进)。
 
 ---
 
@@ -267,6 +267,7 @@ pwsh.exe -NoProfile -ExecutionPolicy Bypass -File tests/run-tests.ps1 -IncludeLi
 
 相对上游 [felimet/mathtype-for-word](https://github.com/felimet/mathtype-for-word) 1.3.0（完整记录见 [CHANGELOG.md](CHANGELOG.md)）：
 
+- **1.2.1 — 公式检查两遍**：skill 规定任何任务都先用 `validate_mathtype_word_document` / `validate_mathtype_powerpoint_presentation` 校验，再渲染出来逐个看公式，两遍都通过才算完成（原来改格式的任务禁止看图）。
 - **1.2.0 — 大文档、纯文本公式与正文排版**：
   - 新增 `scan_plain_text_math` / `prepare_mathtype_markers`：自动找出手打的公式和符号并插入标记、生成清单，支持 CJGE 策略（简单符号转斜体文字加下标）；
   - 渲染改为分批执行，每批独立 Word 进程并存档，支持断点续跑、失败批次拆半重试、后台运行，新增 `get_mathtype_render_status`；

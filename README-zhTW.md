@@ -2,7 +2,7 @@
 
 [简体中文](README.md) | [English](README-en.md) | 繁體中文
 
-版本 **1.2.0**。預設公式格式為《岩土工程學報》（CJGE）MathType 規範，完整說明見[簡體中文 README](README.md) 與 [cjge-format.md](skills/mathtype-for-word/references/cjge-format.md)。本專案 fork 自 [felimet/mathtype-for-word](https://github.com/felimet/mathtype-for-word)（MIT），並擴充功能，詳見下方「本 Fork 的改進」。
+版本 **1.2.1**。預設公式格式為《岩土工程學報》（CJGE）MathType 規範，完整說明見[簡體中文 README](README.md) 與 [cjge-format.md](skills/mathtype-for-word/references/cjge-format.md)。本專案 fork 自 [felimet/mathtype-for-word](https://github.com/felimet/mathtype-for-word)（MIT），並擴充功能，詳見下方「本 Fork 的改進」。
 
 可安裝的 AI Agent skill、Codex/Claude plugin 與 MCP server，用於在 Microsoft Word 與 PowerPoint 建立可編輯的 MathType 7 公式；Word 文件另支援 MathType 原生公式編號與動態交叉引用。
 
@@ -163,6 +163,7 @@ Bridge 會保留來源檔，先驗證同層暫存 Office 檔，再以原子方�
 
 本專案 fork 自 [felimet/mathtype-for-word](https://github.com/felimet/mathtype-for-word)，新增（完整紀錄見 [CHANGELOG.md](CHANGELOG.md)）：
 
+- **1.2.1 — 公式檢查兩遍**：skill 規定任何任務都先用 `validate_mathtype_word_document` / `validate_mathtype_powerpoint_presentation` 驗證，再渲染出來逐一檢視公式，兩遍都通過才算完成（原本排版任務禁止目視檢查）。
 - **1.2.0 — 大型文件、純文字公式與正文排版**：新增 `scan_plain_text_math`、`prepare_mathtype_markers`、`get_mathtype_render_status`、`fix_mathtype_line_spacing`、`apply_cjge_body_format`、`report_docx_formatting`；渲染改為分批、可續跑、可背景執行；部分渲染模式 `allow_unresolved_markers`。修正表格儲存格內標記造成的無限迴圈、VML 尺寸為 `1in` 時格式檢查崩潰、中文路徑造成的 `charmap` 編碼錯誤；逾時只結束本工具啟動的 Office 行程，同類驗證錯誤合併為一條。
 
 - **1.1.0 — CJGE 公式格式**：新增 `apply_mathtype_equation_preferences`（呼叫 MathType API 依偏好檔重排全部公式，等同 MathType「設定公式格式」，全程靜默）、CJGE 偏好與版式設定、公式後標點、全形引用「式（n）」、公式格式驗證、PPT 公式同樣套用 CJGE 樣式。

@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.2.1 — 2026-10-22
+
+### Changed
+
+- **Two-pass equation check** — the `mathtype-for-word` skill now checks every equation twice in every task, content-authoring and formatting alike: first `validate_mathtype_word_document` (or `validate_mathtype_powerpoint_presentation`), which must return `ok: true`, then a visual review of the rendered document or slides. Both checks must pass. Previously formatting tasks forbade visual review and content tasks reviewed only complex equations. Interactive ribbon operations also need both checks afterwards.
+- Server, plugin and skill version 1.2.1; `dist/` packages rebuilt.
+
 ## 1.2.0 — 2026-09-28
 
 Large documents, plain-text formulas and body-text formatting. Every item below comes from problems met while converting a real 330-equation geotechnical manuscript.

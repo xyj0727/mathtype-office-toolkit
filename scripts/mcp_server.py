@@ -15,7 +15,7 @@ from typing import Any, BinaryIO
 
 
 SERVER_NAME = "mathtype-for-word"
-SERVER_VERSION = "1.2.0"
+SERVER_VERSION = "1.2.1"
 SCRIPT_PATH = Path(__file__).with_name("mathtype-word.ps1")
 DEFAULT_PROTOCOL_VERSION = "2025-06-18"
 
